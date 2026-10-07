@@ -1,0 +1,10 @@
+{
+  "appId": "fr.tanguy.messeries",
+  "appName": "Mes séries",
+  "webDir": "www",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

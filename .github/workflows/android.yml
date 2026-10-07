@@ -1,0 +1,62 @@
+name: APK Android
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["README.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Vérifier le SDK Android du runner
+        run: echo "ANDROID_HOME=$ANDROID_HOME" && ls $ANDROID_HOME/build-tools
+
+      - name: Construire l'appli web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Vérifier les données TVmaze
+        run: npm test
+
+      - name: Générer le projet Android
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Compiler et signer l'APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BT/zipalign -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk aligned.apk
+          $BT/apksigner sign --ks ../keystore/messeries.keystore --ks-pass pass:messeries --key-pass pass:messeries --ks-key-alias messeries --out ../mes-series.apk aligned.apk
+          $BT/apksigner verify ../mes-series.apk
+
+      - name: Publier l'APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Mes séries v1.0.${{ github.run_number }}
+          make_latest: true
+          files: mes-series.apk
+          body: |
+            Télécharge mes-series.apk sur ton téléphone puis ouvre-le pour installer ou mettre à jour l'appli.

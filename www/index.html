@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Mes séries</title>
+<style>
+@font-face { font-family: "Material Symbols Rounded"; font-style: normal; font-weight: 100 700; font-display: block; src: url("fonts/material-symbols-rounded.woff2") format("woff2"); }
+@font-face { font-family: "Bricolage Grotesque"; font-weight: 500; src: url("fonts/bricolage-500.woff2") format("woff2"); }
+@font-face { font-family: "Bricolage Grotesque"; font-weight: 700; src: url("fonts/bricolage-700.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-weight: 400; src: url("fonts/figtree-400.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-weight: 500; src: url("fonts/figtree-500.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-weight: 600; src: url("fonts/figtree-600.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 500; src: url("fonts/jetbrains-mono-500.woff2") format("woff2"); }
+
+/* Layout : appli mobile une colonne (centrée sur grand écran), barre du haut, contenu, bouton flottant, navigation en bas. Grille télé : codes S01E03 en mono, accent « à l'antenne ». */
+:root {
+  --bg: #f3f4f8; --surface: #ffffff; --surface-2: #e9ebf2; --surface-3: #dde0ea;
+  --ink: #161a2e; --ink-2: #545a72; --line: #cfd3df;
+  --accent: #d2402a; --on-accent: #ffffff; --accent-soft: #fbe2dc; --on-accent-soft: #6b1508;
+  --seen: #1f7a4d; --seen-soft: #d4f0e0;
+  --warn-soft: #fff0c7; --on-warn-soft: #5c4300;
+  --scrim: rgb(10 12 25 / .45); --inverse: #252a40; --on-inverse: #f1f2f7;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1120; --surface: #171b2d; --surface-2: #20253a; --surface-3: #2b3149;
+    --ink: #e8eaf4; --ink-2: #a3a9c2; --line: #353b55;
+    --accent: #ff7b62; --on-accent: #3a0800; --accent-soft: #4a1d15; --on-accent-soft: #ffd8cf;
+    --seen: #6fd6a0; --seen-soft: #123a28;
+    --warn-soft: #3d3112; --on-warn-soft: #ffe08a;
+    --scrim: rgb(0 0 0 / .6); --inverse: #e8eaf4; --on-inverse: #1b1f33; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1120; --surface: #171b2d; --surface-2: #20253a; --surface-3: #2b3149;
+  --ink: #e8eaf4; --ink-2: #a3a9c2; --line: #353b55;
+  --accent: #ff7b62; --on-accent: #3a0800; --accent-soft: #4a1d15; --on-accent-soft: #ffd8cf;
+  --seen: #6fd6a0; --seen-soft: #123a28;
+  --warn-soft: #3d3112; --on-warn-soft: #ffe08a;
+  --scrim: rgb(0 0 0 / .6); --inverse: #e8eaf4; --on-inverse: #1b1f33; color-scheme: dark;
+}
+
+html, body { margin: 0; min-height: 100%; }
+body { padding-top: env(safe-area-inset-top, 0px); -webkit-user-select: none; user-select: none; overscroll-behavior-y: none; }
+input, textarea { -webkit-user-select: text; user-select: text; }
+img { max-width: 100%; }
+.poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.cands { display: grid; gap: 8px; }
+.cand { display: flex; gap: 12px; align-items: center; background: var(--surface); border: 1.5px solid transparent; border-radius: 14px; padding: 8px; text-align: left; width: 100%; }
+.cand:hover, .cand:focus-visible { border-color: var(--accent); }
+.cand .grow { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ep-row:disabled { opacity: 1; cursor: default; }
+.ep-row.future .tt, .ep-row.future .code { color: var(--ink-2); }
+.ep-row.future .box { border-style: dashed; }
+.ep-row .when { font-size: 12px; color: var(--ink-2); flex: none; }
+.menu-item { width: 100%; border: 0; background: none; display: flex; align-items: center; gap: 16px; padding: 0 4px; min-height: 56px; font-size: 16px; text-align: left; color: var(--ink); border-radius: 12px; }
+.menu-item:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.menu-item .ms { color: var(--ink-2); }
+.menu-item small { display: block; font-size: 13px; color: var(--ink-2); }
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+[hidden] { display: none !important; }
+html, body { background: var(--bg); }
+body { color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 22px; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ms { font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal; font-size: 22px; line-height: 1; letter-spacing: normal; white-space: nowrap; display: inline-block; width: 1em; overflow: hidden; flex: none; font-variation-settings: "FILL" 0, "wght" 400, "opsz" 24; }
+.ms.fill { font-variation-settings: "FILL" 1, "wght" 400, "opsz" 24; }
+.num, .code { font-variant-numeric: tabular-nums; }
+.code { font-family: var(--mono); font-size: .86em; letter-spacing: .02em; }
+
+.app { max-width: 720px; margin: 0 auto; padding: 0 16px calc(110px + env(safe-area-inset-bottom, 0px)); }
+.appbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); margin: 0 -16px; padding: 8px 4px 8px 16px; display: flex; align-items: center; gap: 4px; min-height: 64px; }
+.appbar.scrolled { box-shadow: 0 1px 0 var(--line); }
+.appbar.with-back { padding-left: 4px; }
+.appbar h1 { flex: 1; margin: 0; font-family: var(--display); font-size: 26px; line-height: 32px; font-weight: 700; letter-spacing: -.01em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.appbar h1 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); margin-left: 6px; vertical-align: 4px; }
+.icon-btn { width: 44px; height: 44px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; color: var(--ink-2); flex: none; }
+.icon-btn:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.icon-btn:disabled { opacity: .4; cursor: default; }
+.seen-btn { width: 40px; height: 40px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink-2); display: grid; place-items: center; flex: none; }
+.seen-btn:hover { border-color: var(--seen); color: var(--seen); }
+.searchbar { display: flex; align-items: center; gap: 4px; background: var(--surface-2); border-radius: 14px; height: 48px; padding: 0 4px 0 14px; margin: 0 0 10px; }
+.searchbar input { flex: 1; border: 0; background: transparent; font-size: 16px; min-width: 0; outline: none; }
+
+.navbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--surface); border-top: 1px solid var(--line); padding: 8px 0 calc(10px + env(safe-area-inset-bottom, 0px)); }
+.navbar .in { max-width: 720px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); }
+.nav-item { border: 0; background: none; display: grid; justify-items: center; gap: 2px; padding: 4px 0; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.nav-item .pill { width: 60px; height: 30px; border-radius: 15px; display: grid; place-items: center; position: relative; }
+.nav-item[aria-current="page"] { color: var(--ink); }
+.nav-item[aria-current="page"] .pill { background: var(--accent-soft); color: var(--on-accent-soft); }
+.badge { position: absolute; top: -2px; left: 38px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 11px; line-height: 18px; font-weight: 600; }
+
+.fab { position: fixed; z-index: 6; right: max(16px, calc(50vw - 360px + 16px)); bottom: calc(88px + env(safe-area-inset-bottom, 0px)); height: 54px; border-radius: 18px; border: 0; padding: 0 20px 0 16px; display: flex; align-items: center; gap: 10px; background: var(--accent); color: var(--on-accent); font-weight: 600; box-shadow: 0 6px 16px rgb(0 0 0 / .22); }
+
+.btn { min-height: 40px; border-radius: 12px; padding: 0 18px; border: 0; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.btn .ms { font-size: 19px; }
+.btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn.soft { background: var(--surface-2); color: var(--ink); }
+.btn.outline { background: transparent; border: 1.5px solid var(--line); }
+.btn.ghost { background: transparent; color: var(--accent); padding: 0 10px; }
+.btn.danger { color: var(--accent); }
+.btn.small { min-height: 32px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.btn:disabled { opacity: .45; cursor: default; }
+
+.chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -16px; padding: 2px 16px 12px; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { height: 34px; border-radius: 17px; border: 1.5px solid var(--line); background: transparent; padding: 0 14px; font-size: 14px; font-weight: 500; color: var(--ink-2); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex: none; }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.chip .n { font-size: 12px; opacity: .7; }
+
+.summary { color: var(--ink-2); margin: 0 0 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 14px; }
+.summary b { color: var(--ink); font-weight: 600; }
+.h2 { font-family: var(--display); font-size: 19px; line-height: 26px; font-weight: 700; margin: 24px 0 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.h2 small { font-family: var(--body); font-weight: 500; font-size: 13px; color: var(--ink-2); }
+
+/* Affiche générée */
+.poster { position: relative; width: 58px; aspect-ratio: 2 / 3; border-radius: 8px; overflow: hidden; flex: none; color: #fff; background: linear-gradient(165deg, hsl(var(--h) 52% 46%), hsl(calc(var(--h) + 38) 58% 20%)); display: grid; align-content: end; padding: 6px; }
+.poster b { font-family: var(--display); font-weight: 700; font-size: 20px; line-height: 1; letter-spacing: -.02em; text-shadow: 0 1px 2px rgb(0 0 0 / .3); }
+.poster small { font-family: var(--mono); font-size: 9px; opacity: .85; margin-top: 3px; }
+.poster.big { width: 120px; border-radius: 12px; padding: 10px; box-shadow: 0 8px 20px rgb(0 0 0 / .2); }
+.poster.big b { font-size: 38px; }
+.poster.big small { font-size: 11px; }
+.poster.sm { width: 42px; border-radius: 6px; padding: 4px; }
+.poster.sm b { font-size: 15px; }
+.poster.sm small { display: none; }
+
+/* Liste */
+.list { display: grid; gap: 10px; }
+.s-card { display: flex; gap: 14px; align-items: center; background: var(--surface); border-radius: 16px; padding: 10px 12px 10px 10px; cursor: pointer; }
+.s-card:hover { background: color-mix(in srgb, var(--ink) 4%, var(--surface)); }
+.s-body { flex: 1; min-width: 0; display: grid; gap: 3px; }
+.s-t { font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.s-sub { font-size: 13px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; margin-top: 4px; }
+.bar span { display: block; height: 100%; background: var(--seen); border-radius: 3px; }
+.s-foot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); flex-wrap: wrap; }
+.tag { height: 22px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
+.tag .ms { font-size: 15px; }
+.tag.watching { background: var(--accent-soft); color: var(--on-accent-soft); }
+.tag.done { background: var(--seen-soft); color: var(--seen); }
+.tag.waiting { background: var(--warn-soft); color: var(--on-warn-soft); }
+.tag.ex { background: transparent; border: 1px dashed var(--line); }
+
+.row { display: flex; align-items: center; gap: 14px; padding: 10px 0; }
+.row + .row { border-top: 1px solid var(--line); }
+.row-body { flex: 1; min-width: 0; cursor: pointer; }
+.panel { background: var(--surface); border-radius: 16px; padding: 2px 14px; }
+.info { display: flex; gap: 12px; align-items: center; background: var(--surface-2); border-radius: 12px; padding: 12px 14px; color: var(--ink-2); font-size: 14px; margin-top: 8px; }
+.info.warn { background: var(--warn-soft); color: var(--on-warn-soft); }
+
+/* Fiche */
+.hero { display: flex; gap: 18px; align-items: end; padding: 6px 0 16px; }
+.hero-txt { min-width: 0; display: grid; gap: 4px; }
+.hero-txt h2 { margin: 0; font-family: var(--display); font-size: 30px; line-height: 34px; font-weight: 700; letter-spacing: -.015em; text-wrap: balance; }
+.hero-txt .orig { color: var(--ink-2); font-size: 14px; font-style: italic; }
+.meta { color: var(--ink-2); font-size: 14px; }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--surface-2); border-radius: 12px; padding: 3px; gap: 3px; }
+.seg button { border: 0; background: transparent; border-radius: 9px; height: 36px; font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+.stars { display: flex; gap: 2px; align-items: center; margin-top: 10px; }
+.stars button { border: 0; background: none; padding: 2px; color: var(--ink-2); }
+.stars button.on { color: var(--accent); }
+.stars .lbl { font-size: 13px; color: var(--ink-2); margin-left: 6px; }
+.progress-box { background: var(--surface); border-radius: 16px; padding: 14px; margin-top: 12px; display: grid; gap: 10px; }
+.progress-box .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 14px; color: var(--ink-2); }
+.progress-box .top b { font-family: var(--display); font-size: 24px; color: var(--ink); font-weight: 700; }
+.next { display: flex; align-items: center; gap: 12px; background: var(--accent-soft); color: var(--on-accent-soft); border-radius: 12px; padding: 10px 10px 10px 14px; }
+.next .grow { flex: 1; min-width: 0; }
+.next .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.next .btn { background: var(--accent); color: var(--on-accent); }
+.prose { margin: 0; max-width: 62ch; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; font-size: 14px; }
+.facts dt { color: var(--ink-2); }
+.facts dd { margin: 0; min-width: 0; }
+.cast { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.person { background: var(--surface); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.person b { display: block; font-weight: 600; font-size: 14px; }
+.person span { font-size: 13px; color: var(--ink-2); }
+.source { font-size: 12px; color: var(--ink-2); margin-top: 10px; }
+
+.season { background: var(--surface); border-radius: 16px; overflow: hidden; }
+.season + .season { margin-top: 8px; }
+.season-h { display: flex; align-items: center; gap: 12px; padding: 12px 8px 12px 14px; cursor: pointer; }
+.season-h .grow { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.season-h .t { font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+.season-h .t small { font-weight: 500; color: var(--ink-2); font-size: 13px; }
+.season-h .chev { transition: transform .15s; color: var(--ink-2); }
+.season[data-open="true"] .chev { transform: rotate(180deg); }
+.season-b { padding: 0 14px 14px; display: grid; gap: 10px; }
+.season-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.eps { display: grid; grid-template-columns: repeat(auto-fill, minmax(46px, 1fr)); gap: 6px; }
+.ep { height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: transparent; font-family: var(--mono); font-size: 13px; color: var(--ink-2); }
+.ep.on { background: var(--seen); border-color: var(--seen); color: var(--surface); }
+.ep.nx { border-color: var(--accent); color: var(--accent); }
+.ep-list { display: grid; }
+.ep-row { display: flex; align-items: center; gap: 12px; padding: 8px 2px; border: 0; background: none; text-align: left; width: 100%; }
+.ep-row + .ep-row { border-top: 1px solid var(--line); }
+.ep-row .box { width: 24px; height: 24px; border-radius: 7px; border: 1.5px solid var(--line); display: grid; place-items: center; flex: none; color: transparent; }
+.ep-row.on .box { background: var(--seen); border-color: var(--seen); color: var(--surface); }
+.ep-row .box .ms { font-size: 18px; }
+.ep-row .code { color: var(--ink-2); flex: none; }
+.ep-row .tt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-row.on .tt { color: var(--ink-2); }
+.ep-row.nx .code { color: var(--accent); }
+
+/* Bilan */
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.tile { background: var(--surface); border-radius: 16px; padding: 14px; display: grid; gap: 2px; }
+.tile b { font-family: var(--display); font-size: 30px; line-height: 36px; font-weight: 700; }
+.tile span { font-size: 13px; color: var(--ink-2); }
+.hbars { display: grid; gap: 8px; background: var(--surface); border-radius: 16px; padding: 14px; }
+.hbar { display: grid; grid-template-columns: minmax(90px, 32%) 1fr 34px; gap: 10px; align-items: center; font-size: 14px; }
+.hbar .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar .track { height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.hbar .track span { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+.hbar .v { text-align: right; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.empty { text-align: center; padding: 44px 16px; color: var(--ink-2); display: grid; gap: 10px; justify-items: center; }
+.empty .ms { font-size: 46px; color: var(--line); }
+.empty strong { color: var(--ink); font-family: var(--display); font-size: 20px; font-weight: 700; }
+
+/* Dialogues */
+dialog { border: 0; padding: 0; color: var(--ink); background: var(--bg); }
+dialog::backdrop { background: var(--scrim); }
+dialog.full { width: 100%; height: 100%; max-width: 100%; max-height: 100%; margin: 0; }
+@media (min-width: 760px) { dialog.full { width: 600px; height: auto; max-height: calc(100dvh - 48px); margin: auto; border-radius: 24px; } }
+.full-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px 4px; background: var(--bg); }
+.full-bar h2 { flex: 1; margin: 0; font-family: var(--display); font-size: 22px; font-weight: 700; }
+.fbody { padding: 4px 20px 32px; display: grid; gap: 16px; }
+.field { display: grid; gap: 6px; }
+.field label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.field input, .field select { height: 48px; border: 1.5px solid var(--line); border-radius: 12px; padding: 0 14px; background: var(--surface); font-size: 16px; width: 100%; }
+.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: var(--accent); }
+.field textarea { border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--surface); font-family: var(--mono); font-size: 13px; line-height: 20px; width: 100%; resize: vertical; }
+.prev { background: var(--surface); border-radius: 14px; padding: 4px 14px; max-height: 320px; overflow: auto; }
+.prev-row { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; font-size: 14px; }
+.prev-row + .prev-row { border-top: 1px solid var(--line); }
+.prev-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prev-row.skip { color: var(--ink-2); text-decoration: line-through; }
+.field .help { font-size: 12px; color: var(--ink-2); }
+.searchrow { display: flex; gap: 8px; }
+.searchrow .field { flex: 1; min-width: 0; }
+.searchrow .btn { align-self: end; height: 48px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.found { display: flex; gap: 14px; background: var(--surface); border-radius: 16px; padding: 12px; }
+.found .grow { flex: 1; min-width: 0; display: grid; gap: 4px; align-content: start; }
+.found .t { font-family: var(--display); font-weight: 700; font-size: 18px; line-height: 22px; }
+.found p { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.alts { display: flex; flex-wrap: wrap; gap: 6px; }
+.note { font-size: 13px; color: var(--ink-2); margin: 0; }
+.note.err { color: var(--accent); }
+.spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: spin .8s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(1turn); } }
+dialog.alert { width: min(340px, calc(100vw - 40px)); border-radius: 22px; padding: 22px; background: var(--surface); }
+dialog.alert h3 { margin: 0 0 10px; font-family: var(--display); font-size: 22px; }
+dialog.alert p { margin: 0 0 20px; color: var(--ink-2); }
+dialog.alert .end { display: flex; justify-content: end; gap: 8px; }
+.snack { position: fixed; z-index: 20; left: 16px; right: 16px; bottom: calc(92px + env(safe-area-inset-bottom, 0px)); max-width: 560px; margin: 0 auto; background: var(--inverse); color: var(--on-inverse); border-radius: 12px; padding: 13px 16px; font-size: 14px; box-shadow: 0 6px 16px rgb(0 0 0 / .25); display: flex; align-items: center; gap: 12px; }
+.snack span { flex: 1; }
+.snack button { border: 0; background: none; color: inherit; font-weight: 700; text-decoration: underline; }
+dialog .snack { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+@media (prefers-reduced-motion: no-preference) {
+  .view { animation: enter .2s cubic-bezier(.2, 0, 0, 1); }
+  @keyframes enter { from { opacity: .4; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+}
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+@media (max-width: 400px) { .grid2 { grid-template-columns: 1fr; } .hero-txt h2 { font-size: 25px; line-height: 30px; } .poster.big { width: 96px; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="appbar" id="appbar">
+    <button class="icon-btn" type="button" id="backBtn" aria-label="Retour" hidden><span class="ms">arrow_back</span></button>
+    <h1 id="barTitle">Mes séries</h1>
+    <button class="icon-btn" type="button" id="menuBtn" aria-label="Import et sauvegarde" hidden><span class="ms">more_vert</span></button>
+    <button class="icon-btn" type="button" id="searchBtn" aria-label="Chercher dans mes séries"><span class="ms">search</span></button>
+    <button class="icon-btn" type="button" id="refreshBtn" aria-label="Mettre à jour les infos de la série" hidden><span class="ms">sync</span></button>
+    <button class="icon-btn" type="button" id="delBtn" aria-label="Supprimer la série" hidden><span class="ms">delete</span></button>
+  </header>
+  <div class="searchbar" id="searchbar" hidden>
+    <span class="ms" style="color:var(--ink-2)">search</span>
+    <input id="search" type="search" placeholder="Titre, acteur, chaîne…" aria-label="Chercher dans mes séries" autocomplete="off">
+    <button class="icon-btn" type="button" id="searchClose" aria-label="Fermer la recherche"><span class="ms">close</span></button>
+  </div>
+  <main id="main"></main>
+</div>
+
+<button class="fab" type="button" id="fab"><span class="ms">add</span><span>Série</span></button>
+
+<nav class="navbar" aria-label="Navigation principale">
+  <div class="in">
+    <button class="nav-item" type="button" data-tab="lib" aria-current="page"><span class="pill"><span class="ms">video_library</span></span>Mes séries</button>
+    <button class="nav-item" type="button" data-tab="next"><span class="pill"><span class="ms">play_circle</span><span class="badge" id="nextBadge" hidden></span></span>À suivre</button>
+    <button class="nav-item" type="button" data-tab="stats"><span class="pill"><span class="ms">insights</span></span>Bilan</button>
+  </div>
+</nav>
+
+<dialog class="full" id="addDlg" aria-labelledby="addTitle">
+  <div class="full-bar">
+    <button class="icon-btn" type="button" id="addClose" aria-label="Fermer"><span class="ms">close</span></button>
+    <h2 id="addTitle">Ajouter une série</h2>
+  </div>
+  <form class="fbody" id="addForm" novalidate>
+    <div class="searchrow">
+      <div class="field"><label for="a-q">Titre de la série</label><input id="a-q" maxlength="120" placeholder="Le Bureau des légendes" autocomplete="off"></div>
+      <button class="btn primary" type="button" id="lookupBtn"><span class="ms">travel_explore</span>Rechercher</button>
+    </div>
+    <p class="note" id="lookupNote" hidden></p>
+    <button class="btn ghost small" type="button" id="toImport" style="justify-self:start"><span class="ms">upload_file</span>Plusieurs séries ? Importer une liste ou un CSV</button>
+    <div class="cands" id="cands" hidden></div>
+    <button class="btn ghost small" type="button" id="manualBtn" style="justify-self:start" hidden><span class="ms">edit</span>Pas dans la liste ? Saisir à la main</button>
+    <div id="foundBox" hidden></div>
+    <div id="detailsBox" hidden style="display:grid;gap:16px">
+      <div class="grid2">
+        <div class="field"><label for="a-year">Année de création</label><input id="a-year" type="number" min="1940" max="2100" inputmode="numeric" placeholder="2015"></div>
+        <div class="field"><label for="a-network">Chaîne ou plateforme</label><input id="a-network" maxlength="60" placeholder="Canal+"></div>
+      </div>
+      <div class="field"><label for="a-seasons">Épisodes par saison</label><input id="a-seasons" placeholder="10, 10, 10, 10, 10" autocomplete="off"><span class="help">Un nombre par saison, séparés par des virgules.</span></div>
+      <div class="grid2">
+        <div class="field"><label for="a-status">Pour moi, c'est</label>
+          <select id="a-status"><option value="todo">À voir</option><option value="watching">En cours</option><option value="done">Terminée</option><option value="dropped">Abandonnée</option></select>
+        </div>
+        <div class="field"><label for="a-upto">Déjà vu jusqu'à</label><input id="a-upto" placeholder="S02E05" autocomplete="off"><span class="help">Optionnel. « Terminée » coche tout.</span></div>
+      </div>
+      <p class="note err" id="addErr" hidden></p>
+      <button class="btn primary" type="submit" id="saveBtn"><span class="ms">add</span>Ajouter à mes séries</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="full" id="impDlg" aria-labelledby="impTitle">
+  <div class="full-bar">
+    <button class="icon-btn" type="button" id="impClose" aria-label="Fermer"><span class="ms">close</span></button>
+    <h2 id="impTitle">Importer des séries</h2>
+  </div>
+  <div class="fbody">
+    <p class="note">Un fichier CSV (export Excel, Google Sheets, Notion…) ou une simple liste collée, une série par ligne. Seul le titre est obligatoire ; les colonnes reconnues sont <span class="code">titre</span>, <span class="code">statut</span>, <span class="code">vu_jusqu_a</span> (ex. S02E05), <span class="code">note</span> (sur 5), <span class="code">annee</span> et <span class="code">saisons</span> (épisodes par saison, ex. 8|10|10).</p>
+    <div class="season-tools">
+      <label class="btn soft" for="impFile"><span class="ms">upload_file</span>Choisir un fichier CSV</label>
+      <input type="file" id="impFile" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden>
+      <button class="btn ghost" type="button" id="impTpl"><span class="ms">share</span>Modèle CSV</button>
+    </div>
+    <div class="field"><label for="impText">Ou colle ta liste</label><textarea id="impText" rows="6" placeholder="titre;statut;vu_jusqu_a;note&#10;Breaking Bad;terminée;;5&#10;The Office;en cours;S03E12;4&#10;Fleabag"></textarea></div>
+    <div class="field"><label for="impDefault">Statut si la ligne n'en précise pas</label>
+      <select id="impDefault"><option value="done">Terminée (déjà vue)</option><option value="watching">En cours</option><option value="todo">À voir</option></select>
+    </div>
+    <div id="impPreview"></div>
+    <button class="btn primary" type="button" id="impGo" disabled><span class="ms">playlist_add</span>Importer</button>
+  </div>
+</dialog>
+
+<dialog class="full" id="menuDlg" aria-labelledby="menuTitle">
+  <div class="full-bar">
+    <button class="icon-btn" type="button" id="menuClose" aria-label="Fermer"><span class="ms">close</span></button>
+    <h2 id="menuTitle">Import et sauvegarde</h2>
+  </div>
+  <div class="fbody" style="gap:4px">
+    <button class="menu-item" type="button" id="mImport"><span class="ms">upload_file</span><span>Importer une liste de séries<small>Fichier CSV ou liste collée</small></span></button>
+    <button class="menu-item" type="button" id="mExport"><span class="ms">ios_share</span><span>Envoyer une sauvegarde<small id="lastExport">Aucun envoi pour l'instant.</small></span></button>
+    <button class="menu-item" type="button" id="mRestore"><span class="ms">settings_backup_restore</span><span>Restaurer une sauvegarde<small>Remplace toutes tes séries par celles du fichier</small></span></button>
+    <button class="menu-item" type="button" id="mRefresh"><span class="ms">sync</span><span>Mettre à jour toutes les séries en cours<small id="lastCheck">Nouveaux épisodes, dates de diffusion</small></span></button>
+    <input type="file" id="restoreFile" accept="application/json,.json" hidden>
+    <p class="note" style="margin-top:16px">Données : <a href="https://www.tvmaze.com" style="color:var(--accent)">TVmaze</a> (licence CC BY-SA). Tes séries sont enregistrées uniquement sur ce téléphone.</p>
+  </div>
+</dialog>
+
+<dialog class="alert" id="confirmDlg">
+  <h3>Supprimer la série ?</h3>
+  <p id="confirmTxt"></p>
+  <div class="end"><button class="btn ghost" type="button" id="confirmNo" style="color:var(--ink)">Annuler</button><button class="btn primary" type="button" id="confirmYes">Supprimer</button></div>
+</dialog>
+
+<div class="snack" id="snack" role="status" hidden><span id="snackTxt"></span><button type="button" id="snackUndo" hidden>Annuler</button></div>
+<script src="app.js"></script>
+</body>
+</html>

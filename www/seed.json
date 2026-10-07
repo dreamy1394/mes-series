@@ -1,0 +1,122 @@
+{
+ "series": [
+  {
+   "addedAt": "2026-10-07T12:56:38.386Z",
+   "airing": false,
+   "cast": [
+    {
+     "name": "Antony Starr",
+     "role": "Lucas Hood"
+    },
+    {
+     "name": "Ivana Miličević",
+     "role": "Carrie Hopewell"
+    },
+    {
+     "name": "Ulrich Thomsen",
+     "role": "Kai Proctor"
+    },
+    {
+     "name": "Hoon Lee",
+     "role": "Job"
+    },
+    {
+     "name": "Frankie Faison",
+     "role": "Sugar Bates"
+    },
+    {
+     "name": "Lucy Lawless",
+     "role": "Rebecca Bowman"
+    }
+   ],
+   "country": "États-Unis",
+   "creators": [
+    "Jonathan Tropper",
+    "David Schickler"
+   ],
+   "directors": [
+    "Loni Peristere",
+    "Greg Yaitanes",
+    "S.J. Clarkson",
+    "Ole Christian Madsen"
+   ],
+   "endYear": 2016,
+   "genres": [
+    "Action",
+    "Drame",
+    "Thriller",
+    "Policier"
+   ],
+   "network": "Cinemax",
+   "originalTitle": "Banshee",
+   "rating": 0,
+   "runtime": 55,
+   "seasons": [
+    {
+     "count": 10,
+     "n": 1,
+     "titles": [
+      "Pilot",
+      "The Rave",
+      "Meet the New Boss",
+      "The Kindred",
+      "Wicks",
+      "Épisode 6",
+      "Épisode 7",
+      "Épisode 8",
+      "Épisode 9",
+      "Épisode 10"
+     ],
+     "year": 2013
+    },
+    {
+     "count": 10,
+     "n": 2,
+     "year": 2014
+    },
+    {
+     "count": 10,
+     "n": 3,
+     "year": 2015
+    },
+    {
+     "count": 8,
+     "n": 4,
+     "year": 2016
+    }
+   ],
+   "status": "watching",
+   "summary": "Un ancien détenu, tout juste sorti de prison après quinze ans, arrive dans la petite ville de Banshee en Pennsylvanie. Il usurpe l'identité du nouveau shérif de la ville, tué avant sa prise de fonction, tout en cherchant à retrouver la femme qu'il aime. Son passé criminel ne tarde pas à le rattraper, dans une ville dominée par un puissant et dangereux notable local.",
+   "title": "Banshee",
+   "updatedAt": "2026-10-07T13:05:40.899Z",
+   "watched": {
+    "s1": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10
+    ],
+    "s2": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6,
+     7,
+     8,
+     9,
+     10
+    ]
+   },
+   "year": 2013,
+   "id": "banshee-vnu9"
+  }
+ ]
+}
