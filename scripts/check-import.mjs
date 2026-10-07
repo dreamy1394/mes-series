@@ -27,4 +27,4 @@ for (const s of series) {
 }
 const md = `# ${file}\n\n${found.length} trouvées, ${missing.length} introuvables sur ${series.length}.\n\n## Introuvables\n\n${missing.map((x) => `- ${x}`).join("\n")}\n\n## Trouvées\n\n${found.map((x) => `- ${x}`).join("\n")}\n`;
 writeFileSync("rapport-import.md", md);
-console.log(`${found.length} trouvées, ${missing.length} introuvables sur ${series.length}`);
+console.log(md);
