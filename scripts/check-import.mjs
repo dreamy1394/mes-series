@@ -19,7 +19,7 @@ const found = [], missing = [];
 const cache = new Map();
 const getCached = async (url) => { if (!cache.has(url)) { cache.set(url, await get(url)); await sleep(550); } return cache.get(url); };
 for (const s of series) {
-  const id = await bestMatch(getCached, [s.searchTitle, s.title], s.year);
+  const id = await bestMatch(getCached, [s.searchTitle, s.title], s.year, s.first ? +s.first.slice(0, 4) : null);
   if (id) {
     const hit = (await searchShows(getCached, s.searchTitle || s.title)).find((x) => x.id === id) || { title: "?" };
     found.push(`${s.title} → ${hit.title} (${hit.year ?? "?"}, #${id})`);

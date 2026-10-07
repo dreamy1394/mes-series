@@ -160,7 +160,7 @@ async function bundledImports() {
   try { const r = await fetch("imports/index.json"); if (r.ok) files = await r.json(); } catch {}
   const done = new Set(state.meta.imports || []);
   for (const f of files) {
-    if (done.has(f)) continue;
+    if (done.has(f)) { await importFixes(f); continue; }
     try {
       const r = await fetch("imports/" + f); if (!r.ok) continue;
       const data = await r.json();
@@ -171,14 +171,47 @@ async function bundledImports() {
         const watched = {}, seasons = [];
         for (const [k, c] of Object.entries(x.seasons || {})) { watched["s" + k] = Array.from({ length: c }, (_, i) => i + 1); seasons.push({ n: +k, count: c }); }
         seasons.sort((a, b) => a.n - b.n);
-        state.series.push({ id: slug(x.title), importWatched: clone(watched), title: x.title, searchTitle: x.searchTitle || undefined, year: x.year || null, status: "auto", rating: 0, seasons, watched, genres: [], cast: [], creators: [], directors: [], needsInfo: true, imported: true, source: data.source || f, lastSeen: x.last, addedAt: new Date().toISOString(), updatedAt: (x.last || "2000-01-01") + "T12:00:00.000Z" });
+        state.series.push({ id: slug(x.title), importWatched: clone(watched), title: x.title, searchTitle: x.searchTitle || undefined, year: x.year || null, status: "auto", rating: 0, seasons, watched, genres: [], cast: [], creators: [], directors: [], needsInfo: true, imported: true, source: data.source || f, lastSeen: x.last, firstSeen: x.first, addedAt: new Date().toISOString(), updatedAt: (x.last || "2000-01-01") + "T12:00:00.000Z" });
         have.add(norm(x.title)); n++;
       }
       state.meta.imports = [...done.add(f)];
+      state.meta.importRev = { ...state.meta.importRev, [f]: data.revision || 1 };
       await persist();
       if (n) setTimeout(() => snack(`${plural(n, "série ajoutée")} depuis ${data.source || "l'import"}. Récupération des fiches TVmaze en cours…`, null, 8000), 800);
     } catch {}
   }
+}
+
+// Nouvelle révision d'un import déjà fait : les séries de `recheck` (titre de recherche corrigé, mauvaise série
+// reconnue) sont recherchées à nouveau sur TVmaze, sauf celles dont Tanguy a choisi la série lui-même.
+async function importFixes(f) {
+  try {
+    const r = await fetch("imports/" + f); if (!r.ok) return;
+    const data = await r.json(), rev = data.revision || 1;
+    if (rev <= ((state.meta.importRev || {})[f] || 1)) return;
+    const byTitle = new Map((data.series || []).map((x) => [norm(x.title), x]));
+    const recheck = new Set((data.recheck || []).map(norm));
+    let n = 0;
+    for (const s of state.series) {
+      const x = s.imported && !s.picked && byTitle.get(norm(s.title));
+      if (!x) continue;
+      if (!s.firstSeen) s.firstSeen = x.first;
+      if (!recheck.has(norm(s.title))) continue;
+      s.searchTitle = x.searchTitle || undefined; s.year = x.year || null; s.needsInfo = true; n++;
+    }
+    state.meta.importRev = { ...state.meta.importRev, [f]: rev };
+    await persist();
+    if (n) setTimeout(() => snack(`${plural(n, "fiche importée corrigée")} : nouvelle recherche sur TVmaze…`, null, 6000), 800);
+  } catch {}
+}
+// Remet une fiche importée dans son état d'origine (série introuvable après correction).
+function resetImported(s) {
+  if (s.poster) Filesystem.deleteFile({ path: s.poster, directory: Directory.Data }).catch(() => {});
+  delete posterSrc[s.id];
+  s.watched = clone(s.importWatched || {});
+  s.seasons = Object.entries(s.watched).map(([k, v]) => ({ n: +k.slice(1), count: v.length })).sort((a, b) => a.n - b.n);
+  for (const k of ["tvmazeId", "originalTitle", "endYear", "airing", "network", "country", "runtime", "summary", "posterUrl", "posterFrom", "poster", "imdb", "infoAt"]) delete s[k];
+  Object.assign(s, { genres: [], cast: [], creators: [], directors: [] });
 }
 
 // `user` : action de Tanguy (fait remonter la série dans la liste) ; false pour une mise à jour de fiche.
@@ -432,7 +465,7 @@ $("main").addEventListener("click", async (ev) => {
   if (act === "toggle") { const k = el.dataset.k; state.open[k] = el.getAttribute("aria-expanded") !== "true"; render(); return; }
   if (act === "enrich") { enrichAll(); return; }
   if (act === "fixopen") { state.fixOpen = true; render(); return; }
-  if (act === "pick") { const s = find(state.detailId); if (s) { state.fixOpen = false; applyShow(s, +el.dataset.tv).catch(() => snack("TVmaze ne répond pas. Vérifie ta connexion.")); } return; }
+  if (act === "pick") { const s = find(state.detailId); if (s) { state.fixOpen = false; s.picked = true; applyShow(s, +el.dataset.tv).catch(() => snack("TVmaze ne répond pas. Vérifie ta connexion.")); } return; }
   const s = el.dataset.id ? find(el.dataset.id) : find(state.detailId);
   if (!s) return;
   if (act === "open") return openDetail(s.id);
@@ -489,7 +522,7 @@ $("refreshBtn").addEventListener("click", async () => {
   const s = find(state.detailId); if (!s) return;
   const btn = $("refreshBtn"); btn.disabled = true;
   try {
-    const id = s.tvmazeId || await tv(() => bestMatch(getJson, [s.searchTitle, s.title, s.originalTitle], s.year));
+    const id = s.tvmazeId || await tv(() => bestMatch(getJson, [s.searchTitle, s.title, s.originalTitle], s.year, s.firstSeen ? +s.firstSeen.slice(0, 4) : null));
     if (!id) { snack("TVmaze ne trouve pas cette série. Corrige le titre puis réessaie."); s.needsInfo = "notfound"; touch(s); return; }
     await applyShow(s, id);
   } catch { snack("TVmaze ne répond pas. Vérifie ta connexion."); }
@@ -520,9 +553,9 @@ async function enrichAll() {
     const s = find(id);
     if (s && s.needsInfo === true) {
       try {
-        const tvId = await tv(() => bestMatch(getJson, [s.searchTitle, s.title, s.originalTitle], s.year));
+        const tvId = await tv(() => bestMatch(getJson, [s.searchTitle, s.title, s.originalTitle], s.year, s.firstSeen ? +s.firstSeen.slice(0, 4) : null));
         if (tvId) { await applyShow(s, tvId, { silent: true }); ok++; }
-        else { s.needsInfo = "notfound"; autoStatus(s, true); touch(s, false); nf++; }
+        else { if (s.imported && s.tvmazeId) resetImported(s); s.needsInfo = "notfound"; autoStatus(s, true); touch(s, false); nf++; }
       } catch { net++; if (net >= 3) break; }
       await sleep(700);
     }

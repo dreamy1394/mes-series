@@ -29,18 +29,29 @@ export async function searchShows(get, q) {
 // Correspondance stricte pour un titre seul (import, fiche sans identifiant TVmaze) : on essaie chaque titre
 // et on n'accepte qu'un nom identique ou contenu dans le titre (« The Handmaid's Tale: La Servante écarlate » → « The Handmaid's Tale »).
 // Sinon null : mieux vaut « introuvable » qu'une mauvaise série.
-const key = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
+const key = (t) => String(t || "").toLowerCase().replace(/×/g, "x").replace(/\([^)]*\)/g, "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
+// Même titre, ou titre TVmaze avec un sous-titre (« Arcane: League of Legends »),
+// ou précédé d'un nom (« Tyler Perry's Beauty in Black »). Pas de correspondance approximative : « Safe » ≠ « Safe Home ».
 export function closeTitle(found, wanted) {
   const a = key(found), b = key(wanted);
-  return !!a && (a === b || (a.length >= 4 && b.startsWith(a)) || (b.length >= 4 && a.startsWith(b) && a.length - b.length <= 4));
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (String(found).toLowerCase().startsWith(String(wanted).toLowerCase().trim() + ":")) return true;
+  return b.length >= 8 && a.endsWith(b) && /['’]s /.test(found);
 }
-export async function bestMatch(get, queries, wantedYear) {
+// `maxYear` : année où Tanguy a commencé la série ; on écarte les homonymes sortis après (ordre de pertinence TVmaze conservé).
+export async function bestMatch(get, queries, wantedYear, maxYear) {
   const qs = [...new Set((Array.isArray(queries) ? queries : [queries]).filter(Boolean).flatMap((q) => [q, q.includes(": ") ? q.split(": ")[0] : null]).filter((q) => q && q.length >= 2))];
   for (const q of qs) {
     const list = (await searchShows(get, q)).filter((x) => qs.some((w) => closeTitle(x.title, w)));
     if (!list.length) continue;
-    const y = wantedYear && list.find((x) => x.year === wantedYear);
-    return (y || list[0]).id;
+    const y = wantedYear && (list.find((x) => x.year === wantedYear) || list.find((x) => x.year && Math.abs(x.year - wantedYear) === 1));
+    if (y) return y.id;
+    if (maxYear) {
+      const ok = list.filter((x) => !x.year || x.year <= maxYear);
+      if (ok.length) return ok[0].id;
+    }
+    return list[0].id;
   }
   return null;
 }
