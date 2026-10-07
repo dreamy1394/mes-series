@@ -29,11 +29,15 @@ jobs:
         run: echo "ANDROID_HOME=$ANDROID_HOME" && ls $ANDROID_HOME/build-tools
 
       - name: Construire l'appli web
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
         run: |
           npm ci
           npm run build
 
-      - name: Vérifier les données TVmaze
+      - name: Vérifier les données TVmaze et TMDB
+        env:
+          TMDB_KEY: ${{ secrets.TMDB_KEY }}
         run: npm test
 
       - name: Générer le projet Android

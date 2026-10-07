@@ -5,7 +5,7 @@
   "description": "Mes séries : suivi des séries vues, saison par saison et épisode par épisode (Android)",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "node scripts/test-tvmaze.mjs",
+    "test": "node scripts/test-tvmaze.mjs && node scripts/test-tmdb.mjs",
     "android": "npm run build && npx cap sync android"
   },
   "dependencies": {

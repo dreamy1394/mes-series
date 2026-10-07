@@ -1,10 +1,10 @@
-// Mes séries : application Android (Capacitor). Données sur le téléphone, fiches et affiches depuis TVmaze.
+// Mes séries : application Android (Capacitor). Données sur le téléphone, fiches et affiches depuis TMDB (en français), TVmaze en secours.
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { Preferences } from "@capacitor/preferences";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { App } from "@capacitor/app";
 import { Share } from "@capacitor/share";
-import { searchShows, loadShow, bestMatch } from "./tvmaze.js";
+import { search as searchShows, match as bestMatch, load as loadShow, toTmdb, refOf } from "./sources.js";
 
 const $ = (id) => document.getElementById(id);
 const state = { series: [], meta: {}, loaded: false, tab: "lib", detailId: null, filter: "all", sort: "recent", q: "", searchOpen: false, open: {}, listScroll: 0, enrich: null };
@@ -145,17 +145,25 @@ async function load() {
   if (value) state.series = JSON.parse(value);
   else {
     // Premier lancement : reprend les séries de la version web (prototype claude.ai).
-    try { const r = await fetch("seed.json"); if (r.ok) state.series = ((await r.json()).series || []).map((s) => ({ ...s, needsInfo: s.tvmazeId ? s.needsInfo : true })); } catch {}
+    try { const r = await fetch("seed.json"); if (r.ok) state.series = ((await r.json()).series || []).map((s) => ({ ...s, needsInfo: refOf(s) ? s.needsInfo : true })); } catch {}
     await persist();
   }
   try { const m = await Preferences.get({ key: "meta" }); if (m.value) state.meta = JSON.parse(m.value); } catch {}
   try { state.filter = (await Preferences.get({ key: "filter" })).value || "all"; } catch {}
   try { state.sort = (await Preferences.get({ key: "sort" })).value || "recent"; } catch {}
   await bundledImports();
+  // Passage à TMDB (fiches en français) : chaque fiche TVmaze est convertie une fois ; les introuvables sont recherchées à nouveau.
+  if (!state.meta.tmdb) {
+    for (const s of state.series) {
+      if (refOf(s) && !String(refOf(s)).startsWith("tmdb:")) s.tmdbPending = true;
+      if (s.needsInfo === "notfound") s.needsInfo = true;
+    }
+    state.meta.tmdb = 1; await persist();
+  }
   state.loaded = true;
 }
 // Fichiers d'import livrés avec une version de l'appli (ex. historique Netflix) : chacun est importé une seule fois.
-// Chaque saison vue sur Netflix coche ses N premiers épisodes ; le statut se décide une fois la fiche TVmaze connue.
+// Chaque saison vue sur Netflix coche ses N premiers épisodes ; le statut se décide une fois la fiche connue.
 async function bundledImports() {
   let files = [];
   try { const r = await fetch("imports/index.json"); if (r.ok) files = await r.json(); } catch {}
@@ -175,7 +183,7 @@ async function bundledImports() {
       state.meta.imports = [...done.add(f)];
       state.meta.importRev = { ...state.meta.importRev, [f]: data.revision || 1 };
       await persist();
-      if (n) setTimeout(() => snack(`${plural(n, "série ajoutée")} depuis ${data.source || "l'import"}. Récupération des fiches TVmaze en cours…`, null, 8000), 800);
+      if (n) setTimeout(() => snack(`${plural(n, "série ajoutée")} depuis ${data.source || "l'import"}. Récupération des fiches en cours…`, null, 8000), 800);
     } catch {}
   }
 }
@@ -210,7 +218,7 @@ async function importFixes(f) {
     }
     state.meta.importRev = { ...state.meta.importRev, [f]: rev };
     await persist();
-    if (n) setTimeout(() => snack(`${plural(n, "fiche importée corrigée")} : nouvelle recherche sur TVmaze…`, null, 6000), 800);
+    if (n) setTimeout(() => snack(`${plural(n, "fiche importée corrigée")} : nouvelle recherche des fiches…`, null, 6000), 800);
   } catch {}
 }
 // Remet une fiche importée dans son état d'origine (série introuvable après correction).
@@ -219,7 +227,7 @@ function resetImported(s) {
   delete posterSrc[s.id];
   s.watched = clone(s.importWatched || {});
   s.seasons = Object.entries(s.watched).map(([k, v]) => ({ n: +k.slice(1), count: v.length })).sort((a, b) => a.n - b.n);
-  for (const k of ["tvmazeId", "originalTitle", "endYear", "airing", "network", "country", "runtime", "summary", "posterUrl", "posterFrom", "poster", "imdb", "infoAt"]) delete s[k];
+  for (const k of ["tvmazeId", "tmdbId", "ref", "source", "originalTitle", "endYear", "airing", "network", "country", "runtime", "summary", "posterUrl", "posterFrom", "poster", "imdb", "infoAt"]) delete s[k];
   Object.assign(s, { genres: [], cast: [], creators: [], directors: [] });
 }
 
@@ -331,7 +339,7 @@ function libView() {
     .map(([k, l]) => `<button class="chip" type="button" data-act="filter" data-f="${k}" aria-pressed="${state.filter === k}">${l}<span class="n num">${count(k)}</span></button>`).join("");
   let html = `<p class="summary"><span><b class="num">${all.length}</b> série${all.length > 1 ? "s" : ""}</span><span><b class="num">${eps}</b> épisode${eps > 1 ? "s" : ""} vus</span><label class="sort">${icon("sort")}<select data-act="sort" aria-label="Trier par">${SORTS.map(([k, l]) => `<option value="${k}"${state.sort === k ? " selected" : ""}>${l}</option>`).join("")}</select></label></p><div class="chips" role="group" aria-label="Filtrer par statut">${chips}</div>`;
   const pend = all.filter((s) => s.needsInfo === true).length;
-  if (state.enrich) html += `<div class="info"><span class="spinner"></span><span>Fiches en cours de remplissage depuis TVmaze : <b class="num">${state.enrich.done}</b> / ${state.enrich.total}.</span></div>`;
+  if (state.enrich) html += `<div class="info"><span class="spinner"></span><span>Fiches en cours de remplissage : <b class="num">${state.enrich.done}</b> / ${state.enrich.total}.</span></div>`;
   else if (pend) html += `<div class="info">${icon("cloud_download")}<span style="flex:1">${plural(pend, "série")} sans fiche (saisons, affiche, casting).</span><button class="btn primary small" type="button" data-act="enrich">Compléter</button></div>`;
   if (!all.length) return html + `<div class="empty">${icon("live_tv")}<strong>Aucune série pour l'instant</strong><span>Ajoute la première avec le bouton « Série » : saisons, épisodes, résumé, casting et affiche arrivent tout seuls.</span></div>`;
   const shown = all.filter(matches).sort(SORT_FN[state.sort] || SORT_FN.recent);
@@ -350,7 +358,7 @@ function nextView() {
   html += going.length ? `<div class="panel">${going.map(({ s, st }) => `<div class="row">${sm(s)}<div class="row-body" data-act="open" data-id="${esc(s.id)}" role="button" tabindex="0"><div class="s-t" style="font-size:15px">${esc(s.title)}</div><div class="s-sub"><span class="code">${code(st.next.s, st.next.e)}</span>${st.next.title ? " · " + esc(st.next.title) : ""}</div><div class="bar"><span style="width:${st.pct}%"></span></div></div>
     <button class="seen-btn" type="button" data-act="seen" data-id="${esc(s.id)}" aria-label="Marquer ${code(st.next.s, st.next.e)} comme vu">${icon("done")}</button></div>`).join("")}</div>`
     : `<div class="info">${icon("weekend")}<span>Rien en cours. Coche un premier épisode d'une série pour la retrouver ici.</span></div>`;
-  if (soon.length) html += `<div class="h2">Prochaines diffusions <small>selon TVmaze</small></div><div class="panel">${soon.map(({ s, st }) => `<div class="row">${sm(s)}<div class="row-body" data-act="open" data-id="${esc(s.id)}" role="button" tabindex="0"><div class="s-t" style="font-size:15px">${esc(s.title)}</div><div class="s-sub"><span class="code">${code(st.upcoming.s, st.upcoming.e)}</span> · ${whenLong(st.upcoming.date)}</div></div></div>`).join("")}</div>`;
+  if (soon.length) html += `<div class="h2">Prochaines diffusions</div><div class="panel">${soon.map(({ s, st }) => `<div class="row">${sm(s)}<div class="row-body" data-act="open" data-id="${esc(s.id)}" role="button" tabindex="0"><div class="s-t" style="font-size:15px">${esc(s.title)}</div><div class="s-sub"><span class="code">${code(st.upcoming.s, st.upcoming.e)}</span> · ${whenLong(st.upcoming.date)}</div></div></div>`).join("")}</div>`;
   if (todo.length) html += `<div class="h2">Pas encore commencées <small>${todo.length}</small></div><div class="panel">${todo.map(({ s, st }) => `<div class="row">${sm(s)}<div class="row-body" data-act="open" data-id="${esc(s.id)}" role="button" tabindex="0"><div class="s-t" style="font-size:15px">${esc(s.title)}</div><div class="s-sub">${plural(st.seasons.length, "saison")} · ${st.total} ép.${s.runtime ? ` · ${s.runtime} min` : ""}</div></div>
     <button class="btn soft small" type="button" data-act="seen" data-id="${esc(s.id)}">${icon("play_arrow")}S01E01</button></div>`).join("")}</div>`;
   return html;
@@ -393,8 +401,8 @@ function detailView() {
     ${s.originalTitle && s.originalTitle !== s.title ? `<div class="orig">${esc(s.originalTitle)}</div>` : ""}
     <div class="meta">${esc(meta)}</div>
     <div class="s-foot" style="margin-top:4px">${tagFor(s, st)}${s.airing ? `<span class="tag">${icon("sensors")}En production</span>` : ""}</div></div></div>`;
-  if (s.imported && s.tvmazeId && !state.fixOpen) html += `<button class="btn ghost small" type="button" data-act="fixopen" style="margin:-8px 0 8px -10px">${icon("swap_horiz")}Pas la bonne série ? Changer</button>`;
-  if (s.needsInfo === "notfound" || s.needsInfo === true || state.fixOpen) html += `<div class="info warn" style="margin:0 0 12px">${icon("help")}<span>${s.needsInfo === "notfound" ? "TVmaze n'a pas reconnu ce titre." : state.fixOpen ? "Cherche la bonne série et choisis-la : tes épisodes vus sont conservés." : "Fiche pas encore remplie."} Corrige le titre si besoin (le titre original marche mieux) puis lance la recherche.</span></div>
+  if (s.imported && refOf(s) && !state.fixOpen) html += `<button class="btn ghost small" type="button" data-act="fixopen" style="margin:-8px 0 8px -10px">${icon("swap_horiz")}Pas la bonne série ? Changer</button>`;
+  if (s.needsInfo === "notfound" || s.needsInfo === true || state.fixOpen) html += `<div class="info warn" style="margin:0 0 12px">${icon("help")}<span>${s.needsInfo === "notfound" ? "Ni TMDB ni TVmaze n'ont reconnu ce titre." : state.fixOpen ? "Cherche la bonne série et choisis-la : tes épisodes vus sont conservés." : "Fiche pas encore remplie."} Corrige le titre si besoin (le titre original marche mieux) puis lance la recherche.</span></div>
     <div class="searchrow" style="margin-bottom:14px"><div class="field"><label for="fixTitle">Titre</label><input id="fixTitle" maxlength="120" value="${esc(s.title)}" autocomplete="off"></div><button class="btn primary" type="button" data-act="fix">${icon("travel_explore")}Rechercher</button></div><div class="cands" id="fixCands"></div>`;
   html += `<div class="seg" role="group" aria-label="Mon statut">${Object.entries(STATUS).map(([k, l]) => `<button type="button" data-act="status" data-v="${k}" aria-pressed="${s.status === k}">${l}</button>`).join("")}</div>
     <div class="stars" role="group" aria-label="Ma note">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="${(s.rating || 0) >= n ? "on" : ""}" data-act="rate" data-v="${n}" aria-label="${n} sur 5" aria-pressed="${s.rating === n}">${icon("star", (s.rating || 0) >= n)}</button>`).join("")}<span class="lbl">${s.rating ? `${s.rating}/5` : "Pas encore notée"}</span></div>`;
@@ -434,7 +442,7 @@ function detailView() {
     }
     html += `</div>`;
   }
-  if (s.infoAt) html += `<p class="source">Fiche ${s.tvmazeId ? `TVmaze mise à jour le ${fmtLong(s.infoAt)}` : `du ${fmtLong(s.infoAt)}`}.</p>`;
+  if (s.infoAt) html += `<p class="source">Fiche ${refOf(s) ? `${s.source || "TVmaze"} mise à jour le ${fmtLong(s.infoAt)}` : `du ${fmtLong(s.infoAt)}`}.</p>`;
   return html;
 }
 
@@ -484,7 +492,7 @@ $("main").addEventListener("click", async (ev) => {
   if (act === "toggle") { const k = el.dataset.k; state.open[k] = el.getAttribute("aria-expanded") !== "true"; render(); return; }
   if (act === "enrich") { enrichAll(); return; }
   if (act === "fixopen") { state.fixOpen = true; render(); return; }
-  if (act === "pick") { const s = find(state.detailId); if (s) { state.fixOpen = false; s.picked = true; applyShow(s, +el.dataset.tv).catch(() => snack("TVmaze ne répond pas. Vérifie ta connexion.")); } return; }
+  if (act === "pick") { const s = find(state.detailId); if (s) { state.fixOpen = false; s.picked = true; applyShow(s, el.dataset.tv).catch(() => snack("Pas de réponse des bases de séries. Vérifie ta connexion.")); } return; }
   const s = el.dataset.id ? find(el.dataset.id) : find(state.detailId);
   if (!s) return;
   if (act === "open") return openDetail(s.id);
@@ -504,8 +512,8 @@ $("main").addEventListener("click", async (ev) => {
     el.disabled = true;
     try {
       const list = await tv(() => searchShows(getJson, t));
-      $("fixCands").innerHTML = list.length ? list.map(candHtml).join("") : `<p class="note err">Toujours rien. Essaie le titre original anglais.</p>`;
-    } catch { $("fixCands").innerHTML = `<p class="note err">TVmaze ne répond pas. Vérifie ta connexion.</p>`; }
+      $("fixCands").innerHTML = list.length ? list.map(candHtml).join("") : `<p class="note err">Toujours rien. Essaie le titre original.</p>`;
+    } catch { $("fixCands").innerHTML = `<p class="note err">Pas de réponse des bases de séries. Vérifie ta connexion.</p>`; }
     finally { el.disabled = false; }
   }
 });
@@ -514,22 +522,29 @@ $("main").addEventListener("change", (e) => {
   state.sort = e.target.value; Preferences.set({ key: "sort", value: state.sort }).catch(() => {}); render();
 });
 $("main").addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[role=button][data-act]")) { e.preventDefault(); e.target.click(); } });
-const candHtml = (c) => `<button class="cand" type="button" data-act="pick" data-tv="${c.id}">${poster({ title: c.title, year: c.year, posterUrl: c.poster }, "sm")}<span class="grow"><span class="s-t" style="font-size:15px">${esc(c.title)}</span><span class="s-sub">${esc([c.year ? (c.endYear && c.endYear !== c.year ? `${c.year}–${c.endYear}` : c.year) : "", c.network, c.country].filter(Boolean).join(" · "))}</span></span>${icon("chevron_right")}</button>`;
+const candHtml = (c) => `<button class="cand" type="button" data-act="pick" data-tv="${c.ref}">${poster({ title: c.title, year: c.year, posterUrl: c.poster }, "sm")}<span class="grow"><span class="s-t" style="font-size:15px">${esc(c.title)}</span><span class="s-sub">${esc([c.year ? (c.endYear && c.endYear !== c.year ? `${c.year}–${c.endYear}` : c.year) : "", c.network, c.country].filter(Boolean).join(" · "))}</span></span>${icon("chevron_right")}</button>`;
 
-// ---------- TVmaze → fiche ----------
-// Remplace les infos d'une série par celles de TVmaze, en gardant les épisodes cochés, le statut et la note.
-async function applyShow(s, tvId, { silent } = {}) {
-  const info = await tv(() => loadShow(getJson, tvId));
+// ---------- Fiche TMDB / TVmaze ----------
+// Remplace les infos d'une série par celles de la fiche `ref`, en gardant les épisodes cochés, le statut et la note.
+// `migrate` : même série vue sur TMDB ; abandon si ses saisons ne contiennent pas tous les épisodes déjà cochés.
+async function applyShow(s, ref, { silent, migrate } = {}) {
+  const info = await tv(() => loadShow(getJson, ref));
   const cur = find(s.id); if (!cur) return null;
-  const before = stats(cur).total;
-  const keepTitle = cur.tvmazeId === info.tvmazeId || cur.imported ? cur.title : info.title;
+  if (migrate) {
+    const fits = Object.entries(cur.watched || {}).every(([k, eps]) => { const se = info.seasons.find((x) => "s" + x.n === k); return !eps.length || (se && Math.max(...eps) <= se.count); });
+    if (!fits) return null;
+  }
+  const before = stats(cur).total, old = refOf(cur);
+  if (old && old !== info.ref && !migrate) delete cur.tvmazeId;
+  // Titre : celui de la fiche française, sauf série importée (titre Netflix) ou renommée par Tanguy.
+  const keepTitle = cur.imported || cur.renamed ? cur.title : info.title;
   // Changement de série sur une fiche importée : on repart de la progression d'origine.
-  if (cur.imported && cur.importWatched && cur.tvmazeId && cur.tvmazeId !== info.tvmazeId) cur.watched = clone(cur.importWatched);
+  if (cur.imported && cur.importWatched && old && old !== info.ref && !migrate) cur.watched = clone(cur.importWatched);
   const { posterUrl, ...rest } = info;
   Object.assign(cur, rest, { title: keepTitle, posterUrl, infoAt: new Date().toISOString() });
   delete cur.needsInfo; delete cur.example; delete cur.confidence;
   applyProgress(cur);
-  // Épisodes cochés hors de la fiche TVmaze (numérotation différente sur Netflix) : on les retire.
+  // Épisodes cochés hors de la fiche (numérotation différente sur Netflix) : on les retire.
   for (const k of Object.keys(cur.watched || {})) {
     const se = cur.seasons.find((x) => "s" + x.n === k);
     if (!se) delete cur.watched[k]; else cur.watched[k] = cur.watched[k].filter((e) => e <= se.count);
@@ -545,19 +560,19 @@ $("refreshBtn").addEventListener("click", async () => {
   const s = find(state.detailId); if (!s) return;
   const btn = $("refreshBtn"); btn.disabled = true;
   try {
-    const id = s.tvmazeId || await tv(() => bestMatch(getJson, [s.searchTitle, s.title, s.originalTitle], s.year, s.firstSeen ? +s.firstSeen.slice(0, 4) : null));
-    if (!id) { snack("TVmaze ne trouve pas cette série. Corrige le titre puis réessaie."); s.needsInfo = "notfound"; touch(s); return; }
+    const id = refOf(s) || await tv(() => bestMatch(getJson, [s.searchTitle, s.title, s.originalTitle], s.year, s.firstSeen ? +s.firstSeen.slice(0, 4) : null));
+    if (!id) { snack("Série introuvable sur TMDB et TVmaze. Corrige le titre puis réessaie."); s.needsInfo = "notfound"; touch(s); return; }
     await applyShow(s, id);
-  } catch { snack("TVmaze ne répond pas. Vérifie ta connexion."); }
+  } catch { snack("Pas de réponse des bases de séries. Vérifie ta connexion."); }
   finally { btn.disabled = false; }
 });
 
 // Met à jour les séries en cours de diffusion (nouveaux épisodes, dates).
 async function refreshAiring({ silent } = {}) {
-  const list = state.series.filter((s) => s.tvmazeId && s.airing && s.status !== "dropped");
+  const list = state.series.filter((s) => refOf(s) && s.airing && s.status !== "dropped");
   let added = 0, names = [];
   for (const s of list) {
-    try { const n = await applyShow(s, s.tvmazeId, { silent: true }); if (n > 0) { added += n; names.push(s.title); } } catch {}
+    try { const n = await applyShow(s, refOf(s), { silent: true }); if (n > 0) { added += n; names.push(s.title); } } catch {}
     await sleep(400);
   }
   state.meta.checkedAt = new Date().toISOString(); persistSoon();
@@ -567,26 +582,34 @@ async function refreshAiring({ silent } = {}) {
 
 async function enrichAll() {
   if (state.enrich) return;
-  const queue = state.series.filter((s) => s.needsInfo === true).map((s) => s.id);
+  const queue = state.series.filter((s) => s.needsInfo === true || s.tmdbPending).map((s) => s.id);
   if (!queue.length) return;
   state.enrich = { done: 0, total: queue.length };
   let ok = 0, nf = 0, net = 0;
   render();
   for (const id of queue) {
     const s = find(id);
-    if (s && s.needsInfo === true) {
+    if (s && s.tmdbPending && s.needsInfo !== true) {
+      try {
+        const ref = await tv(() => toTmdb(getJson, s));
+        if (ref && await applyShow(s, ref, { silent: true, migrate: true }) != null) ok++;
+        delete s.tmdbPending;
+      } catch { net++; if (net >= 3) break; }
+      await sleep(250);
+    } else if (s && s.needsInfo === true) {
+      delete s.tmdbPending;
       try {
         const tvId = await tv(() => bestMatch(getJson, [s.searchTitle, s.title, s.originalTitle], s.year, s.firstSeen ? +s.firstSeen.slice(0, 4) : null));
         if (tvId) { await applyShow(s, tvId, { silent: true }); ok++; }
-        else { if (s.imported && s.tvmazeId) resetImported(s); s.needsInfo = "notfound"; autoStatus(s, true); touch(s, false); nf++; }
+        else { if (s.imported && refOf(s)) resetImported(s); s.needsInfo = "notfound"; autoStatus(s, true); touch(s, false); nf++; }
       } catch { net++; if (net >= 3) break; }
-      await sleep(700);
+      await sleep(400);
     }
     state.enrich.done++; render();
     if (state.enrich.done % 10 === 0) await persist();
   }
   state.enrich = null; render();
-  if (net >= 3) snack("TVmaze ne répond pas. Vérifie ta connexion puis touche « Compléter ».", null, 6000);
+  if (net >= 3) snack("Pas de réponse des bases de séries. Vérifie ta connexion puis touche « Compléter ».", null, 6000);
   else snack(`${plural(ok, "fiche complétée")}${nf ? `, ${nf} introuvable${nf > 1 ? "s" : ""} : ouvre leur fiche pour corriger le titre` : ""}`, null, 6000);
 }
 
@@ -622,21 +645,21 @@ $("cands").addEventListener("click", async (e) => {
   const note = $("lookupNote");
   note.className = "note"; note.textContent = "Chargement de la fiche…"; note.hidden = false;
   try {
-    found = await tv(() => loadShow(getJson, +b.dataset.tv));
+    found = await tv(() => loadShow(getJson, b.dataset.tv));
     const total = found.seasons.reduce((n, x) => n + x.count, 0);
     $("foundBox").innerHTML = `<div class="found">${poster(found)}<div class="grow"><div class="t">${esc(found.title)}</div>
       <div class="s-sub">${esc([years(found), found.network, `${plural(found.seasons.length, "saison")}, ${total} ép.`].filter(Boolean).join(" · "))}</div>
       <div class="s-sub">${esc(found.cast.slice(0, 3).map((c) => c.name).join(", "))}</div>${found.summary ? `<p>${esc(found.summary)}</p>` : ""}</div></div>`;
     $("foundBox").hidden = false; $("cands").hidden = true;
-    note.textContent = "Fiche TVmaze trouvée. Indique où tu en es, puis ajoute-la.";
+    note.textContent = `Fiche ${found.source} trouvée. Indique où tu en es, puis ajoute-la.`;
     fillDetails(found);
-  } catch { note.className = "note err"; note.textContent = "TVmaze ne répond pas. Vérifie ta connexion."; }
+  } catch { note.className = "note err"; note.textContent = "Pas de réponse des bases de séries. Vérifie ta connexion."; }
 });
 async function lookup() {
   const q = $("a-q").value.trim(), note = $("lookupNote");
   if (!q) { note.textContent = "Tape d'abord le titre de la série."; note.hidden = false; return; }
   $("lookupBtn").disabled = true; $("lookupBtn").innerHTML = `<span class="spinner"></span>Recherche`;
-  note.hidden = false; note.className = "note"; note.textContent = "Recherche sur TVmaze…";
+  note.hidden = false; note.className = "note"; note.textContent = "Recherche…";
   $("foundBox").hidden = true; $("detailsBox").hidden = true; found = null;
   try {
     cands = await tv(() => searchShows(getJson, q));
@@ -644,7 +667,7 @@ async function lookup() {
     $("cands").hidden = !cands.length;
     note.textContent = cands.length ? "Choisis la bonne série :" : "Aucune série trouvée. Essaie le titre original, ou saisis-la à la main.";
   } catch {
-    note.className = "note err"; note.textContent = "TVmaze ne répond pas. Vérifie ta connexion, ou saisis la série à la main.";
+    note.className = "note err"; note.textContent = "Pas de réponse des bases de séries. Vérifie ta connexion, ou saisis la série à la main.";
   } finally {
     $("manualBtn").hidden = false;
     $("lookupBtn").disabled = false; $("lookupBtn").innerHTML = `${icon("travel_explore")}Rechercher`;
@@ -667,10 +690,10 @@ $("addForm").addEventListener("submit", async (e) => {
   const upRaw = $("a-upto").value.trim(), up = upRaw ? parseUpTo(upRaw) : null;
   if (upRaw && !up) return err("« Déjà vu jusqu'à » doit ressembler à S02E05.");
   if (up && (up.s > counts.length || up.e > counts[up.s - 1])) return err(`${code(up.s, up.e)} n'existe pas avec ces saisons.`);
-  if (found && found.tvmazeId && state.series.some((x) => x.tvmazeId === found.tvmazeId)) return err("Cette série est déjà dans ta liste.");
+  if (found && found.ref && state.series.some((x) => refOf(x) === found.ref)) return err("Cette série est déjà dans ta liste.");
   const base = found ? clone(found) : { title, genres: [], cast: [], creators: [], directors: [], seasons: [] };
   const fs = new Map((base.seasons || []).map((x) => [x.n, x]));
-  // Les saisons TVmaze sont gardées telles quelles si le nombre d'épisodes n'a pas été modifié.
+  // Les saisons de la fiche sont gardées telles quelles si le nombre d'épisodes n'a pas été modifié.
   const seasons = counts.map((count, i) => { const o = fs.get(i + 1); return o && o.count === count ? o : { n: i + 1, count, year: (o || {}).year || null }; });
   let status = $("a-status").value;
   if (up && status === "todo") status = "watching";
@@ -773,7 +796,7 @@ function impPreview() {
   btn.disabled = !n;
   btn.innerHTML = `${icon("playlist_add")}${n ? `Importer ${plural(n, "série")}` : "Importer"}`;
   if (!impItems.length) { $("impPreview").innerHTML = $("impText").value.trim() ? `<p class="note err">Aucun titre reconnu. Mets un titre par ligne, ou une colonne « titre » dans ton CSV.</p>` : ""; return; }
-  $("impPreview").innerHTML = `<p class="note"><b class="num">${n}</b> à importer${dups ? `, ${dups} déjà dans ta liste (ignorée${dups > 1 ? "s" : ""})` : ""}. Les fiches et affiches seront ensuite récupérées sur TVmaze.</p>
+  $("impPreview").innerHTML = `<p class="note"><b class="num">${n}</b> à importer${dups ? `, ${dups} déjà dans ta liste (ignorée${dups > 1 ? "s" : ""})` : ""}. Les fiches et affiches seront ensuite récupérées automatiquement.</p>
     <div class="prev">${impItems.slice(0, 200).map((x) => `<div class="prev-row ${x.dup ? "skip" : ""}"><span class="t">${esc(x.title)}${x.year ? ` <span class="s-sub">(${x.year})</span>` : ""}</span>${x.upTo ? `<span class="code">${x.upTo}</span>` : ""}${x.rating ? `<span class="num s-sub">${x.rating}/5</span>` : ""}<span class="tag ${x.status === "done" ? "done" : x.status === "watching" ? "watching" : ""}">${STATUS[x.status]}</span></div>`).join("")}${impItems.length > 200 ? `<p class="note">… et ${impItems.length - 200} autres.</p>` : ""}</div>`;
 }
 function openImport() {
@@ -835,7 +858,7 @@ $("menuClose").addEventListener("click", () => $("menuDlg").close());
 $("mImport").addEventListener("click", openImport);
 $("mExport").addEventListener("click", async () => {
   try {
-    // Les affiches ne sont pas incluses : elles se re-téléchargent depuis TVmaze à la restauration.
+    // Les affiches ne sont pas incluses : elles se re-téléchargent à la restauration.
     const series = state.series.map((s) => { const c = clone(s); delete c.poster; return c; });
     await shareText(`mes-series-${todayISO()}.json`, JSON.stringify({ app: "mes-series", version: 1, exportedAt: new Date().toISOString(), series }), "Sauvegarde Mes séries");
     state.meta.lastExport = new Date().toISOString(); await persist();
@@ -874,7 +897,7 @@ App.addListener("pause", () => { persist(); }).catch(() => {});
 render();
 load().then(() => {
   render();
-  if (state.series.some((s) => s.needsInfo === true)) enrichAll().then(() => refreshAiring({ silent: true }));
+  if (state.series.some((s) => s.needsInfo === true || s.tmdbPending)) enrichAll().then(() => refreshAiring({ silent: true }));
   else {
     const last = state.meta.checkedAt ? new Date(state.meta.checkedAt) : null;
     if (!last || Date.now() - last > 2 * 86400000) refreshAiring({ silent: true });

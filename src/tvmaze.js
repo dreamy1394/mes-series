@@ -20,7 +20,7 @@ export const stripHtml = (h) => String(h || "").replace(/<[^>]+>/g, " ").replace
 export async function searchShows(get, q) {
   const list = await get(`${API}/search/shows?q=${encodeURIComponent(q)}`);
   return (Array.isArray(list) ? list : []).slice(0, 8).map(({ show: s }) => ({
-    id: s.id, title: s.name, year: year(s.premiered), endYear: year(s.ended),
+    id: s.id, ref: "tvmaze:" + s.id, title: s.name, originalTitle: s.name, year: year(s.premiered), endYear: year(s.ended),
     network: (s.network || s.webChannel || {}).name || "", country: country(((s.network || s.webChannel || {}).country || {}).code),
     poster: s.image ? s.image.medium : null, status: s.status,
   }));
@@ -29,7 +29,7 @@ export async function searchShows(get, q) {
 // Correspondance stricte pour un titre seul (import, fiche sans identifiant TVmaze) : on essaie chaque titre
 // et on n'accepte qu'un nom identique ou contenu dans le titre (« The Handmaid's Tale: La Servante écarlate » → « The Handmaid's Tale »).
 // Sinon null : mieux vaut « introuvable » qu'une mauvaise série.
-const key = (t) => String(t || "").toLowerCase().replace(/×/g, "x").replace(/\([^)]*\)/g, "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
+export const key = (t) => String(t || "").toLowerCase().replace(/×/g, "x").replace(/\([^)]*\)/g, "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
 // Même titre, ou titre TVmaze avec un sous-titre (« Arcane: League of Legends »),
 // ou précédé d'un nom (« Tyler Perry's Beauty in Black »). Pas de correspondance approximative : « Safe » ≠ « Safe Home ».
 export function closeTitle(found, wanted) {
@@ -40,13 +40,17 @@ export function closeTitle(found, wanted) {
   return b.length >= 8 && a.endsWith(b) && /['’]s /.test(found);
 }
 // `maxYear` : année où Tanguy a commencé la série ; on écarte les homonymes sortis après (ordre de pertinence TVmaze conservé).
-export async function bestMatch(get, queries, wantedYear, maxYear) {
+export const bestMatch = (get, queries, wantedYear, maxYear) => matchIn((q) => searchShows(get, q), queries, wantedYear, maxYear);
+
+// Commun à TVmaze et TMDB : `search(q)` renvoie des candidats {id, title, originalTitle, year}.
+export async function matchIn(search, queries, wantedYear, maxYear) {
   const full = [...new Set((Array.isArray(queries) ? queries : [queries]).filter((q) => q && q.length >= 2))];
   // Titre avant « : » (« Shadow and Bone: La saga Grisha ») : essayé aussi, mais seulement à l'identique.
   const short = full.filter((q) => q.includes(": ")).map((q) => q.split(": ")[0]).filter((q) => q.length >= 2);
-  const ok = (t) => full.some((w) => closeTitle(t, w)) || short.some((w) => key(t) === key(w));
+  const same = (t, w) => closeTitle(t, w);
+  const ok = (x) => [x.title, x.originalTitle].filter(Boolean).some((t) => full.some((w) => same(t, w)) || short.some((w) => key(t) === key(w)));
   for (const q of [...new Set([...full, ...short])]) {
-    const list = (await searchShows(get, q)).filter((x) => ok(x.title));
+    const list = (await search(q)).filter(ok);
     if (!list.length) continue;
     const y = wantedYear && (list.find((x) => x.year === wantedYear) || list.find((x) => x.year && Math.abs(x.year - wantedYear) === 1));
     if (y) return y.id;
@@ -83,7 +87,7 @@ export function toSeries(s) {
   const people = (re) => [...new Set(crew.filter((c) => re.test(c.type || "")).map((c) => c.person && c.person.name).filter(Boolean))].slice(0, 4);
   const net = s.network || s.webChannel || {};
   return {
-    tvmazeId: s.id,
+    tvmazeId: s.id, ref: "tvmaze:" + s.id, source: "TVmaze",
     title: s.name || "", originalTitle: s.name || "",
     // Fin = dernier épisode régulier : TVmaze date parfois la fin d'après un téléfilm ou un épisode spécial (ex. Breaking Bad 2019).
     year: year(s.premiered), endYear: s.ended ? (seasons.length ? lastYear(seasons) || year(s.ended) : year(s.ended)) : null, airing: s.status === "Running" || s.status === "In Development" || s.status === "To Be Determined",

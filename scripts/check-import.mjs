@@ -1,6 +1,8 @@
-// Rapport : quelles séries d'un fichier d'import TVmaze reconnaît-il ? (node scripts/check-import.mjs www/imports/xxx.json)
+// Rapport : quelles séries d'un fichier d'import TMDB (puis TVmaze) reconnaît-il ? (node scripts/check-import.mjs www/imports/xxx.json)
 import { readFileSync, writeFileSync } from "node:fs";
-import { searchShows, bestMatch } from "../src/tvmaze.js";
+import { match } from "../src/sources.js";
+import * as tmdb from "../src/tmdb.js";
+import * as tvmaze from "../src/tvmaze.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const get = async (url) => {
@@ -17,14 +19,18 @@ const file = process.argv[2];
 const { series } = JSON.parse(readFileSync(file, "utf8"));
 const found = [], missing = [];
 const cache = new Map();
-const getCached = async (url) => { if (!cache.has(url)) { cache.set(url, await get(url)); await sleep(550); } return cache.get(url); };
+const getCached = async (url) => { if (!cache.has(url)) { cache.set(url, await get(url)); await sleep(url.includes("tvmaze") ? 550 : 40); } return cache.get(url); };
+const bySrc = { tmdb: 0, tvmaze: 0 };
 for (const s of series) {
-  const id = await bestMatch(getCached, [s.searchTitle, s.title], s.year, s.first ? +s.first.slice(0, 4) : null);
-  if (id) {
-    const hit = (await searchShows(getCached, s.searchTitle || s.title)).find((x) => x.id === id) || { title: "?" };
-    found.push(`${s.title} → ${hit.title} (${hit.year ?? "?"}, #${id})`);
+  const ref = await match(getCached, [s.searchTitle, s.title], s.year, s.first ? +s.first.slice(0, 4) : null);
+  if (ref) {
+    const [src, id] = ref.split(":"); bySrc[src]++;
+    const api = src === "tmdb" ? tmdb : tvmaze;
+    let hit = { title: "?" };
+    for (const q of [s.searchTitle, s.title].filter(Boolean)) { const h = (await api.searchShows(getCached, q)).find((x) => x.id === +id); if (h) { hit = h; break; } }
+    found.push(`${s.title} → ${hit.title}${hit.originalTitle && hit.originalTitle !== hit.title ? ` / ${hit.originalTitle}` : ""} (${hit.year ?? "?"}, ${ref})`);
   } else missing.push(`${s.title}${s.searchTitle ? ` [${s.searchTitle}]` : ""} · ${Object.values(s.seasons).reduce((a, b) => a + b, 0)} ép.`);
 }
-const md = `# ${file}\n\n${found.length} trouvées, ${missing.length} introuvables sur ${series.length}.\n\n## Introuvables\n\n${missing.map((x) => `- ${x}`).join("\n")}\n\n## Trouvées\n\n${found.map((x) => `- ${x}`).join("\n")}\n`;
+const md = `# ${file}\n\n${found.length} trouvées (TMDB ${bySrc.tmdb}, TVmaze ${bySrc.tvmaze}), ${missing.length} introuvables sur ${series.length}.\n\n## Introuvables\n\n${missing.map((x) => `- ${x}`).join("\n")}\n\n## Trouvées\n\n${found.map((x) => `- ${x}`).join("\n")}\n`;
 writeFileSync("rapport-import.md", md);
 console.log(md);

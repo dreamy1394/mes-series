@@ -13,5 +13,8 @@ const fonts = {
   "jetbrains-mono-500.woff2": "@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2",
 };
 for (const [to, from] of Object.entries(fonts)) copyFileSync(`node_modules/${from}`, `www/fonts/${to}`);
-await build({ entryPoints: ["src/app.js"], bundle: true, format: "iife", target: "es2020", outfile: "www/app.js", minify: true });
+// Clé TMDB : secret GitHub TMDB_KEY (absente en local : l'appli utilise alors TVmaze seul).
+const tmdbKey = process.env.TMDB_KEY || "";
+if (!tmdbKey) console.warn("TMDB_KEY absente : fiches TVmaze uniquement.");
+await build({ entryPoints: ["src/app.js"], bundle: true, format: "iife", target: "es2020", outfile: "www/app.js", minify: true, define: { __TMDB_KEY__: JSON.stringify(tmdbKey) } });
 console.log("www/ prêt");
