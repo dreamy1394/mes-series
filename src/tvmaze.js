@@ -40,6 +40,8 @@ export async function loadShow(get, id) {
   return toSeries(s);
 }
 
+const lastYear = (seasons) => { const d = seasons[seasons.length - 1].dates.filter(Boolean).pop(); return year(d); };
+
 export function toSeries(s) {
   const emb = s._embedded || {};
   const bySeason = new Map();
@@ -58,7 +60,8 @@ export function toSeries(s) {
   return {
     tvmazeId: s.id,
     title: s.name || "", originalTitle: s.name || "",
-    year: year(s.premiered), endYear: year(s.ended), airing: s.status === "Running" || s.status === "In Development" || s.status === "To Be Determined",
+    // Fin = dernier épisode régulier : TVmaze date parfois la fin d'après un téléfilm ou un épisode spécial (ex. Breaking Bad 2019).
+    year: year(s.premiered), endYear: s.ended ? (seasons.length ? lastYear(seasons) || year(s.ended) : year(s.ended)) : null, airing: s.status === "Running" || s.status === "In Development" || s.status === "To Be Determined",
     network: net.name || "", country: country((net.country || {}).code),
     genres: (s.genres || []).map((g) => GENRES[g] || g).slice(0, 4),
     runtime: s.averageRuntime || s.runtime || null,
