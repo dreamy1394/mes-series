@@ -14,6 +14,7 @@ Application Android pour suivre les séries vues : saisons, épisodes cochés au
 - Les séries en cours de diffusion sont revérifiées automatiquement tous les 2 jours à l'ouverture (nouveaux épisodes, dates).
 - Les données restent sur le téléphone. Menu ⋮ de « Mes séries » : import CSV, sauvegarde (fichier JSON à envoyer où tu veux), restauration.
 - Au premier lancement, l'appli reprend les séries saisies dans le prototype web (`www/seed.json`).
+- Les fichiers de `www/imports/` (ex. historique Netflix) sont importés une seule fois : chaque saison vue coche ses N premiers épisodes, puis la fiche TVmaze est recherchée (titre original si fourni dans `searchTitle`). Une série introuvable ou mal reconnue se corrige depuis sa fiche.
 
 ## Import CSV
 

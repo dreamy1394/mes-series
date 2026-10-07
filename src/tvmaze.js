@@ -26,12 +26,23 @@ export async function searchShows(get, q) {
   }));
 }
 
-// Meilleure correspondance pour un titre seul (import CSV). Renvoie l'id ou null.
-export async function bestMatch(get, q, wantedYear) {
-  const list = await searchShows(get, q);
-  if (!list.length) return null;
-  if (wantedYear) { const y = list.find((x) => x.year === wantedYear); if (y) return y.id; }
-  return list[0].id;
+// Correspondance stricte pour un titre seul (import, fiche sans identifiant TVmaze) : on essaie chaque titre
+// et on n'accepte qu'un nom identique ou contenu dans le titre (« The Handmaid's Tale: La Servante écarlate » → « The Handmaid's Tale »).
+// Sinon null : mieux vaut « introuvable » qu'une mauvaise série.
+const key = (t) => String(t || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/&/g, "and").replace(/[^a-z0-9]/g, "");
+export function closeTitle(found, wanted) {
+  const a = key(found), b = key(wanted);
+  return !!a && (a === b || (a.length >= 4 && b.startsWith(a)) || (b.length >= 4 && a.startsWith(b) && a.length - b.length <= 4));
+}
+export async function bestMatch(get, queries, wantedYear) {
+  const qs = [...new Set((Array.isArray(queries) ? queries : [queries]).filter(Boolean).flatMap((q) => [q, q.includes(": ") ? q.split(": ")[0] : null]).filter((q) => q && q.length >= 2))];
+  for (const q of qs) {
+    const list = (await searchShows(get, q)).filter((x) => qs.some((w) => closeTitle(x.title, w)));
+    if (!list.length) continue;
+    const y = wantedYear && list.find((x) => x.year === wantedYear);
+    return (y || list[0]).id;
+  }
+  return null;
 }
 
 // Fiche complète : saisons et épisodes (hors épisodes spéciaux), casting, créateurs, affiche.
