@@ -7,7 +7,7 @@ import { Share } from "@capacitor/share";
 import { searchShows, loadShow, bestMatch } from "./tvmaze.js";
 
 const $ = (id) => document.getElementById(id);
-const state = { series: [], meta: {}, loaded: false, tab: "lib", detailId: null, filter: "all", q: "", searchOpen: false, open: {}, listScroll: 0, enrich: null };
+const state = { series: [], meta: {}, loaded: false, tab: "lib", detailId: null, filter: "all", sort: "recent", q: "", searchOpen: false, open: {}, listScroll: 0, enrich: null };
 const native = Capacitor.isNativePlatform();
 
 // ---------- Outils ----------
@@ -150,6 +150,7 @@ async function load() {
   }
   try { const m = await Preferences.get({ key: "meta" }); if (m.value) state.meta = JSON.parse(m.value); } catch {}
   try { state.filter = (await Preferences.get({ key: "filter" })).value || "all"; } catch {}
+  try { state.sort = (await Preferences.get({ key: "sort" })).value || "recent"; } catch {}
   await bundledImports();
   state.loaded = true;
 }
@@ -295,7 +296,7 @@ function card(s) {
     ${poster(s)}
     <div class="s-body">
       <div class="s-t">${esc(s.title)}</div>
-      <div class="s-sub">${esc(meta)}</div>
+      <div class="s-sub">${s.rating ? `<span class="s-rate" aria-label="Note ${s.rating} sur 5">★ ${s.rating}</span>${meta ? " · " : ""}` : ""}${esc(meta)}</div>
       <div class="bar" aria-hidden="true"><span style="width:${st.pct}%"></span></div>
       <div class="s-foot"><span class="num">${st.seen} / ${st.total} ép.</span>${tagFor(s, st)}${st.next && s.status === "watching" ? `<span class="code">→ ${code(st.next.s, st.next.e)}</span>` : ""}</div>
     </div>
@@ -311,19 +312,29 @@ function matches(s) {
 }
 const loading = () => `<div class="empty"><span class="spinner"></span><span>Chargement de tes séries…</span></div>`;
 
+// Tri de la bibliothèque. « Récentes » garde le regroupement par statut (en cours d'abord).
+const SORTS = [["recent", "Récentes"], ["title", "Titre A → Z"], ["rating", "Note"]];
+const byTitle = (a, b) => a.title.localeCompare(b.title, "fr", { sensitivity: "base", numeric: true });
+const STATUS_ORDER = { watching: 0, todo: 1, done: 2, dropped: 3 };
+const SORT_FN = {
+  recent: (a, b) => STATUS_ORDER[bucket(a)] - STATUS_ORDER[bucket(b)] || String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")) || byTitle(a, b),
+  title: byTitle,
+  // Les séries non notées passent après les notées.
+  rating: (a, b) => (b.rating || 0) - (a.rating || 0) || byTitle(a, b),
+};
+
 function libView() {
   if (!state.loaded) return loading();
   const all = state.series, eps = all.reduce((n, s) => n + stats(s).seen, 0);
   const count = (k) => all.filter((s) => k === "all" || bucket(s) === k).length;
   const chips = [["all", "Toutes"], ["watching", "En cours"], ["todo", "À voir"], ["done", "Terminées"], ["dropped", "Abandonnées"]]
     .map(([k, l]) => `<button class="chip" type="button" data-act="filter" data-f="${k}" aria-pressed="${state.filter === k}">${l}<span class="n num">${count(k)}</span></button>`).join("");
-  let html = `<p class="summary"><span><b class="num">${all.length}</b> série${all.length > 1 ? "s" : ""}</span><span><b class="num">${eps}</b> épisode${eps > 1 ? "s" : ""} vus</span></p><div class="chips" role="group" aria-label="Filtrer par statut">${chips}</div>`;
+  let html = `<p class="summary"><span><b class="num">${all.length}</b> série${all.length > 1 ? "s" : ""}</span><span><b class="num">${eps}</b> épisode${eps > 1 ? "s" : ""} vus</span><label class="sort">${icon("sort")}<select data-act="sort" aria-label="Trier par">${SORTS.map(([k, l]) => `<option value="${k}"${state.sort === k ? " selected" : ""}>${l}</option>`).join("")}</select></label></p><div class="chips" role="group" aria-label="Filtrer par statut">${chips}</div>`;
   const pend = all.filter((s) => s.needsInfo === true).length;
   if (state.enrich) html += `<div class="info"><span class="spinner"></span><span>Fiches en cours de remplissage depuis TVmaze : <b class="num">${state.enrich.done}</b> / ${state.enrich.total}.</span></div>`;
   else if (pend) html += `<div class="info">${icon("cloud_download")}<span style="flex:1">${plural(pend, "série")} sans fiche (saisons, affiche, casting).</span><button class="btn primary small" type="button" data-act="enrich">Compléter</button></div>`;
   if (!all.length) return html + `<div class="empty">${icon("live_tv")}<strong>Aucune série pour l'instant</strong><span>Ajoute la première avec le bouton « Série » : saisons, épisodes, résumé, casting et affiche arrivent tout seuls.</span></div>`;
-  const order = { watching: 0, todo: 1, done: 2, dropped: 3 };
-  const shown = all.filter(matches).sort((a, b) => order[bucket(a)] - order[bucket(b)] || String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")) || a.title.localeCompare(b.title, "fr"));
+  const shown = all.filter(matches).sort(SORT_FN[state.sort] || SORT_FN.recent);
   if (!shown.length) return html + `<div class="empty">${icon("filter_alt_off")}<span>Aucune série ne correspond.</span></div>`;
   return html + `<div class="list">${shown.map(card).join("")}</div>`;
 }
@@ -497,6 +508,10 @@ $("main").addEventListener("click", async (ev) => {
     } catch { $("fixCands").innerHTML = `<p class="note err">TVmaze ne répond pas. Vérifie ta connexion.</p>`; }
     finally { el.disabled = false; }
   }
+});
+$("main").addEventListener("change", (e) => {
+  if (e.target.dataset.act !== "sort") return;
+  state.sort = e.target.value; Preferences.set({ key: "sort", value: state.sort }).catch(() => {}); render();
 });
 $("main").addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[role=button][data-act]")) { e.preventDefault(); e.target.click(); } });
 const candHtml = (c) => `<button class="cand" type="button" data-act="pick" data-tv="${c.id}">${poster({ title: c.title, year: c.year, posterUrl: c.poster }, "sm")}<span class="grow"><span class="s-t" style="font-size:15px">${esc(c.title)}</span><span class="s-sub">${esc([c.year ? (c.endYear && c.endYear !== c.year ? `${c.year}–${c.endYear}` : c.year) : "", c.network, c.country].filter(Boolean).join(" · "))}</span></span>${icon("chevron_right")}</button>`;
