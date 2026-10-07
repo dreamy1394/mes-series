@@ -3,12 +3,13 @@
 import * as tmdb from "./tmdb.js";
 import * as tvmaze from "./tvmaze.js";
 
+export const tmdbReady = () => tmdb.hasKey();
 export const refOf = (s) => s.ref || (s.tvmazeId ? "tvmaze:" + s.tvmazeId : null);
 
 // Candidats pour une recherche manuelle : TMDB, complétés par TVmaze si TMDB ne donne rien.
 export async function search(get, q) {
   let list = [];
-  try { list = await tmdb.searchShows(get, q); } catch {}
+  if (tmdb.hasKey()) try { list = await tmdb.searchShows(get, q); } catch {}
   if (!list.length) list = await tvmaze.searchShows(get, q);
   return list;
 }
@@ -16,10 +17,12 @@ export async function search(get, q) {
 // Correspondance automatique d'après le titre : `ref` ou null.
 export async function match(get, queries, wantedYear, maxYear) {
   let tmdbFailed = false;
-  try { const id = await tmdb.bestMatch(get, queries, wantedYear, maxYear); if (id) return "tmdb:" + id; }
-  catch (e) { tmdbFailed = true; }
-  try { const id = await tvmaze.bestMatch(get, queries, wantedYear, maxYear); if (id) return "tvmaze:" + id; }
-  catch (e) { throw e; }
+  if (tmdb.hasKey()) {
+    try { const id = await tmdb.bestMatch(get, queries, wantedYear, maxYear); if (id) return "tmdb:" + id; }
+    catch (e) { tmdbFailed = true; }
+  }
+  const id = await tvmaze.bestMatch(get, queries, wantedYear, maxYear);
+  if (id) return "tvmaze:" + id;
   if (tmdbFailed) throw new Error("network");
   return null;
 }

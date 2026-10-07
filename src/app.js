@@ -4,7 +4,7 @@ import { Preferences } from "@capacitor/preferences";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { App } from "@capacitor/app";
 import { Share } from "@capacitor/share";
-import { search as searchShows, match as bestMatch, load as loadShow, toTmdb, refOf } from "./sources.js";
+import { search as searchShows, match as bestMatch, load as loadShow, toTmdb, refOf, tmdbReady } from "./sources.js";
 
 const $ = (id) => document.getElementById(id);
 const state = { series: [], meta: {}, loaded: false, tab: "lib", detailId: null, filter: "all", sort: "recent", q: "", searchOpen: false, open: {}, listScroll: 0, enrich: null };
@@ -153,7 +153,7 @@ async function load() {
   try { state.sort = (await Preferences.get({ key: "sort" })).value || "recent"; } catch {}
   await bundledImports();
   // Passage à TMDB (fiches en français) : chaque fiche TVmaze est convertie une fois ; les introuvables sont recherchées à nouveau.
-  if (!state.meta.tmdb) {
+  if (!state.meta.tmdb && tmdbReady()) {
     for (const s of state.series) {
       if (refOf(s) && !String(refOf(s)).startsWith("tmdb:")) s.tmdbPending = true;
       if (s.needsInfo === "notfound") s.needsInfo = true;
@@ -582,7 +582,7 @@ async function refreshAiring({ silent } = {}) {
 
 async function enrichAll() {
   if (state.enrich) return;
-  const queue = state.series.filter((s) => s.needsInfo === true || s.tmdbPending).map((s) => s.id);
+  const queue = state.series.filter((s) => s.needsInfo === true || (s.tmdbPending && tmdbReady())).map((s) => s.id);
   if (!queue.length) return;
   state.enrich = { done: 0, total: queue.length };
   let ok = 0, nf = 0, net = 0;
@@ -897,7 +897,7 @@ App.addListener("pause", () => { persist(); }).catch(() => {});
 render();
 load().then(() => {
   render();
-  if (state.series.some((s) => s.needsInfo === true || s.tmdbPending)) enrichAll().then(() => refreshAiring({ silent: true }));
+  if (state.series.some((s) => s.needsInfo === true || (s.tmdbPending && tmdbReady()))) enrichAll().then(() => refreshAiring({ silent: true }));
   else {
     const last = state.meta.checkedAt ? new Date(state.meta.checkedAt) : null;
     if (!last || Date.now() - last > 2 * 86400000) refreshAiring({ silent: true });
