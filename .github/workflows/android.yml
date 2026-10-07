@@ -3,7 +3,7 @@ name: APK Android
 on:
   push:
     branches: [main]
-    paths-ignore: ["README.md"]
+    paths-ignore: ["README.md", "scripts/check-import.mjs", ".github/workflows/check-import.yml"]
   workflow_dispatch:
 
 permissions:

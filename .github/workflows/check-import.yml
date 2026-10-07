@@ -1,0 +1,22 @@
+name: Vérifier un import
+
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: Fichier d'import à vérifier
+        default: www/imports/netflix-2026-10-07.json
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-import.mjs "${{ inputs.file }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rapport-import
+          path: rapport-import.md
