@@ -168,10 +168,7 @@ async function bundledImports() {
       let n = 0;
       for (const x of data.series || []) {
         if (!x.title || have.has(norm(x.title)) || (x.searchTitle && have.has(norm(x.searchTitle)))) continue;
-        const watched = {}, seasons = [];
-        for (const [k, c] of Object.entries(x.seasons || {})) { watched["s" + k] = Array.from({ length: c }, (_, i) => i + 1); seasons.push({ n: +k, count: c }); }
-        seasons.sort((a, b) => a.n - b.n);
-        state.series.push({ id: slug(x.title), importWatched: clone(watched), title: x.title, searchTitle: x.searchTitle || undefined, year: x.year || null, status: "auto", rating: 0, seasons, watched, genres: [], cast: [], creators: [], directors: [], needsInfo: true, imported: true, source: data.source || f, lastSeen: x.last, firstSeen: x.first, addedAt: new Date().toISOString(), updatedAt: (x.last || "2000-01-01") + "T12:00:00.000Z" });
+        state.series.push(fromImport(x, data.source || f));
         have.add(norm(x.title)); n++;
       }
       state.meta.imports = [...done.add(f)];
@@ -182,6 +179,12 @@ async function bundledImports() {
   }
 }
 
+function fromImport(x, source) {
+  const watched = {}, seasons = [];
+  for (const [k, c] of Object.entries(x.seasons || {})) { watched["s" + k] = Array.from({ length: c }, (_, i) => i + 1); seasons.push({ n: +k, count: c }); }
+  seasons.sort((a, b) => a.n - b.n);
+  return { id: slug(x.title), importWatched: clone(watched), title: x.title, searchTitle: x.searchTitle || undefined, year: x.year || null, status: "auto", rating: 0, seasons, watched, genres: [], cast: [], creators: [], directors: [], needsInfo: true, imported: true, source, lastSeen: x.last, firstSeen: x.first, addedAt: new Date().toISOString(), updatedAt: (x.last || "2000-01-01") + "T12:00:00.000Z" };
+}
 // Nouvelle révision d'un import déjà fait : les séries de `recheck` (titre de recherche corrigé, mauvaise série
 // reconnue) sont recherchées à nouveau sur TVmaze, sauf celles dont Tanguy a choisi la série lui-même.
 async function importFixes(f) {
@@ -191,12 +194,17 @@ async function importFixes(f) {
     if (rev <= ((state.meta.importRev || {})[f] || 1)) return;
     const byTitle = new Map((data.series || []).map((x) => [norm(x.title), x]));
     const recheck = new Set((data.recheck || []).map(norm));
+    // Séries d'une ancienne révision remplacées (ex. « Monstre » scindée en trois séries TVmaze).
+    const gone = new Set((data.removed || []).map(norm));
+    state.series = state.series.filter((s) => !(s.imported && !s.picked && gone.has(norm(s.title))));
+    const have = new Set(state.series.flatMap((s) => [norm(s.title), norm(s.originalTitle)]).filter(Boolean));
     let n = 0;
+    for (const x of data.series || []) if (recheck.has(norm(x.title)) && !have.has(norm(x.title))) { state.series.push(fromImport(x, data.source || f)); have.add(norm(x.title)); n++; }
     for (const s of state.series) {
       const x = s.imported && !s.picked && byTitle.get(norm(s.title));
       if (!x) continue;
       if (!s.firstSeen) s.firstSeen = x.first;
-      if (!recheck.has(norm(s.title))) continue;
+      if (!recheck.has(norm(s.title)) || s.needsInfo === true) continue;
       s.searchTitle = x.searchTitle || undefined; s.year = x.year || null; s.needsInfo = true; n++;
     }
     state.meta.importRev = { ...state.meta.importRev, [f]: rev };

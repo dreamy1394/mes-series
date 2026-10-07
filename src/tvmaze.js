@@ -41,15 +41,18 @@ export function closeTitle(found, wanted) {
 }
 // `maxYear` : année où Tanguy a commencé la série ; on écarte les homonymes sortis après (ordre de pertinence TVmaze conservé).
 export async function bestMatch(get, queries, wantedYear, maxYear) {
-  const qs = [...new Set((Array.isArray(queries) ? queries : [queries]).filter(Boolean).flatMap((q) => [q, q.includes(": ") ? q.split(": ")[0] : null]).filter((q) => q && q.length >= 2))];
-  for (const q of qs) {
-    const list = (await searchShows(get, q)).filter((x) => qs.some((w) => closeTitle(x.title, w)));
+  const full = [...new Set((Array.isArray(queries) ? queries : [queries]).filter((q) => q && q.length >= 2))];
+  // Titre avant « : » (« Shadow and Bone: La saga Grisha ») : essayé aussi, mais seulement à l'identique.
+  const short = full.filter((q) => q.includes(": ")).map((q) => q.split(": ")[0]).filter((q) => q.length >= 2);
+  const ok = (t) => full.some((w) => closeTitle(t, w)) || short.some((w) => key(t) === key(w));
+  for (const q of [...new Set([...full, ...short])]) {
+    const list = (await searchShows(get, q)).filter((x) => ok(x.title));
     if (!list.length) continue;
     const y = wantedYear && (list.find((x) => x.year === wantedYear) || list.find((x) => x.year && Math.abs(x.year - wantedYear) === 1));
     if (y) return y.id;
     if (maxYear) {
-      const ok = list.filter((x) => !x.year || x.year <= maxYear);
-      if (ok.length) return ok[0].id;
+      const old = list.filter((x) => !x.year || x.year <= maxYear);
+      if (old.length) return old[0].id;
     }
     return list[0].id;
   }
