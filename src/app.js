@@ -202,7 +202,10 @@ async function importFixes(f) {
     const data = await r.json(), rev = data.revision || 1;
     if (rev <= ((state.meta.importRev || {})[f] || 1)) return;
     const byTitle = new Map((data.series || []).map((x) => [norm(x.title), x]));
-    const recheck = new Set((data.recheck || []).map(norm));
+    // `rechecks` : titres à rechercher à nouveau, par révision ; seules les révisions pas encore appliquées comptent.
+    const from = (state.meta.importRev || {})[f] || 1;
+    const lists = data.rechecks || { 2: data.recheck || [] };
+    const recheck = new Set(Object.entries(lists).filter(([r]) => +r > from).flatMap(([, l]) => l).map(norm));
     // Séries d'une ancienne révision remplacées (ex. « Monstre » scindée en trois séries TVmaze).
     const gone = new Set((data.removed || []).map(norm));
     state.series = state.series.filter((s) => !(s.imported && !s.picked && gone.has(norm(s.title))));

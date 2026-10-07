@@ -49,18 +49,22 @@ export async function matchIn(search, queries, wantedYear, maxYear) {
   const short = full.filter((q) => q.includes(": ")).map((q) => q.split(": ")[0]).filter((q) => q.length >= 2);
   const same = (t, w) => closeTitle(t, w);
   const ok = (x) => [x.title, x.originalTitle].filter(Boolean).some((t) => full.some((w) => same(t, w)) || short.some((w) => key(t) === key(w)));
+  // Année connue : on essaie toutes les recherches avant de se rabattre sur la première liste trouvée.
+  let first = null;
   for (const q of [...new Set([...full, ...short])]) {
     const list = (await search(q)).filter(ok);
     if (!list.length) continue;
     const y = wantedYear && (list.find((x) => x.year === wantedYear) || list.find((x) => x.year && Math.abs(x.year - wantedYear) === 1));
     if (y) return y.id;
-    if (maxYear) {
-      const old = list.filter((x) => !x.year || x.year <= maxYear);
-      if (old.length) return old[0].id;
-    }
-    return list[0].id;
+    first = first || list;
+    if (!wantedYear) break;
   }
-  return null;
+  if (!first) return null;
+  if (maxYear) {
+    const old = first.filter((x) => !x.year || x.year <= maxYear);
+    if (old.length) return old[0].id;
+  }
+  return first[0].id;
 }
 
 // Fiche complète : saisons et épisodes (hors épisodes spéciaux), casting, créateurs, affiche.
