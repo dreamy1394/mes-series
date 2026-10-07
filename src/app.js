@@ -350,20 +350,26 @@ function libView() {
   return html + `<div class="list">${shown.map(card).join("")}</div>`;
 }
 
+// « À suivre » : seulement les séries que Tanguy a marquées (bouton « Suivre » de la fiche).
 function nextView() {
   if (!state.loaded) return loading();
-  const rows = state.series.map((s) => ({ s, st: stats(s) }));
-  const going = rows.filter((r) => bucket(r.s) === "watching" && r.st.next && r.s.status !== "dropped").sort((a, b) => String(b.s.updatedAt || "").localeCompare(String(a.s.updatedAt || "")));
-  const soon = rows.filter((r) => r.st.upcoming && r.s.status !== "dropped").sort((a, b) => a.st.upcoming.date.localeCompare(b.st.upcoming.date));
-  const todo = rows.filter((r) => bucket(r.s) === "todo" && r.st.next);
+  const rows = state.series.filter((s) => s.follow).map((s) => ({ s, st: stats(s) }));
+  if (!rows.length) return `<div class="empty">${icon("bookmark_add")}<strong>Aucune série à suivre</strong><span>Ouvre une série et touche « Suivre » : elle apparaîtra ici avec son prochain épisode et ses dates de diffusion.</span></div>`;
+  const recent = (a, b) => String(b.s.updatedAt || "").localeCompare(String(a.s.updatedAt || ""));
+  const going = rows.filter((r) => r.st.next && r.st.seen > 0).sort(recent);
+  const todo = rows.filter((r) => r.st.next && !r.st.seen).sort(recent);
+  const soon = rows.filter((r) => r.st.upcoming).sort((a, b) => a.st.upcoming.date.localeCompare(b.st.upcoming.date));
+  const waiting = rows.filter((r) => !r.st.next && !r.st.upcoming).sort(recent);
   const sm = (s) => `${poster(s, "sm")}`;
-  let html = `<div class="h2">Reprendre <small>${plural(going.length, "série")}</small></div>`;
-  html += going.length ? `<div class="panel">${going.map(({ s, st }) => `<div class="row">${sm(s)}<div class="row-body" data-act="open" data-id="${esc(s.id)}" role="button" tabindex="0"><div class="s-t" style="font-size:15px">${esc(s.title)}</div><div class="s-sub"><span class="code">${code(st.next.s, st.next.e)}</span>${st.next.title ? " · " + esc(st.next.title) : ""}</div><div class="bar"><span style="width:${st.pct}%"></span></div></div>
-    <button class="seen-btn" type="button" data-act="seen" data-id="${esc(s.id)}" aria-label="Marquer ${code(st.next.s, st.next.e)} comme vu">${icon("done")}</button></div>`).join("")}</div>`
-    : `<div class="info">${icon("weekend")}<span>Rien en cours. Coche un premier épisode d'une série pour la retrouver ici.</span></div>`;
-  if (soon.length) html += `<div class="h2">Prochaines diffusions</div><div class="panel">${soon.map(({ s, st }) => `<div class="row">${sm(s)}<div class="row-body" data-act="open" data-id="${esc(s.id)}" role="button" tabindex="0"><div class="s-t" style="font-size:15px">${esc(s.title)}</div><div class="s-sub"><span class="code">${code(st.upcoming.s, st.upcoming.e)}</span> · ${whenLong(st.upcoming.date)}</div></div></div>`).join("")}</div>`;
-  if (todo.length) html += `<div class="h2">Pas encore commencées <small>${todo.length}</small></div><div class="panel">${todo.map(({ s, st }) => `<div class="row">${sm(s)}<div class="row-body" data-act="open" data-id="${esc(s.id)}" role="button" tabindex="0"><div class="s-t" style="font-size:15px">${esc(s.title)}</div><div class="s-sub">${plural(st.seasons.length, "saison")} · ${st.total} ép.${s.runtime ? ` · ${s.runtime} min` : ""}</div></div>
-    <button class="btn soft small" type="button" data-act="seen" data-id="${esc(s.id)}">${icon("play_arrow")}S01E01</button></div>`).join("")}</div>`;
+  const body = (s, sub) => `<div class="row-body" data-act="open" data-id="${esc(s.id)}" role="button" tabindex="0"><div class="s-t" style="font-size:15px">${esc(s.title)}</div><div class="s-sub">${sub}</div>`;
+  let html = "";
+  if (going.length) html += `<div class="h2">Reprendre <small>${plural(going.length, "série")}</small></div><div class="panel">${going.map(({ s, st }) => `<div class="row">${sm(s)}${body(s, `<span class="code">${code(st.next.s, st.next.e)}</span>${st.next.title ? " · " + esc(st.next.title) : ""}`)}<div class="bar"><span style="width:${st.pct}%"></span></div></div>
+    <button class="seen-btn" type="button" data-act="seen" data-id="${esc(s.id)}" aria-label="Marquer ${code(st.next.s, st.next.e)} comme vu">${icon("done")}</button></div>`).join("")}</div>`;
+  if (soon.length) html += `<div class="h2">Prochaines diffusions</div><div class="panel">${soon.map(({ s, st }) => `<div class="row">${sm(s)}${body(s, `<span class="code">${code(st.upcoming.s, st.upcoming.e)}</span> · ${whenLong(st.upcoming.date)}`)}</div></div>`).join("")}</div>`;
+  if (todo.length) html += `<div class="h2">Pas encore commencées <small>${todo.length}</small></div><div class="panel">${todo.map(({ s, st }) => `<div class="row">${sm(s)}${body(s, `${plural(st.seasons.length, "saison")} · ${st.total} ép.${s.runtime ? ` · ${s.runtime} min` : ""}`)}</div>
+    <button class="btn soft small" type="button" data-act="seen" data-id="${esc(s.id)}">${icon("play_arrow")}${code(st.next.s, st.next.e)}</button></div>`).join("")}</div>`;
+  if (waiting.length) html += `<div class="h2">À jour <small>${waiting.length}</small></div><div class="panel">${waiting.map(({ s }) => `<div class="row">${sm(s)}${body(s, s.airing ? "En attente de la suite" : "Tout est vu")}</div>
+    <button class="icon-btn" type="button" data-act="follow" data-id="${esc(s.id)}" aria-label="Ne plus suivre ${esc(s.title)}">${icon("bookmark_remove")}</button></div>`).join("")}</div>`;
   return html;
 }
 
@@ -408,6 +414,7 @@ function detailView() {
   if (s.needsInfo === "notfound" || s.needsInfo === true || state.fixOpen) html += `<div class="info warn" style="margin:0 0 12px">${icon("help")}<span>${s.needsInfo === "notfound" ? "Ni TMDB ni TVmaze n'ont reconnu ce titre." : state.fixOpen ? "Cherche la bonne série et choisis-la : tes épisodes vus sont conservés." : "Fiche pas encore remplie."} Corrige le titre si besoin (le titre original marche mieux) puis lance la recherche.</span></div>
     <div class="searchrow" style="margin-bottom:14px"><div class="field"><label for="fixTitle">Titre</label><input id="fixTitle" maxlength="120" value="${esc(s.title)}" autocomplete="off"></div><button class="btn primary" type="button" data-act="fix">${icon("travel_explore")}Rechercher</button></div><div class="cands" id="fixCands"></div>`;
   html += `<div class="seg" role="group" aria-label="Mon statut">${Object.entries(STATUS).map(([k, l]) => `<button type="button" data-act="status" data-v="${k}" aria-pressed="${s.status === k}">${l}</button>`).join("")}</div>
+    <button class="btn follow" type="button" data-act="follow" data-id="${esc(s.id)}" aria-pressed="${!!s.follow}">${icon(s.follow ? "bookmark_added" : "bookmark_add", s.follow)}${s.follow ? "Dans « À suivre »" : "Suivre dans « À suivre »"}</button>
     <div class="stars" role="group" aria-label="Ma note">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="${(s.rating || 0) >= n ? "on" : ""}" data-act="rate" data-v="${n}" aria-label="${n} sur 5" aria-pressed="${s.rating === n}">${icon("star", (s.rating || 0) >= n)}</button>`).join("")}<span class="lbl">${s.rating ? `${s.rating}/5` : "Pas encore notée"}</span></div>`;
   html += `<div class="progress-box"><div class="top"><span><b class="num">${st.seen}</b> / ${st.total} épisodes vus</span><span class="num">${st.pct} %</span></div><div class="bar" style="margin:0"><span style="width:${st.pct}%"></span></div>
     ${st.next ? `<div class="next"><span class="ms">play_circle</span><div class="grow"><div class="code">Prochain : ${code(st.next.s, st.next.e)}</div><div class="t">${esc(st.next.title || `Saison ${st.next.s}, épisode ${st.next.e}`)}</div></div><button class="btn small" type="button" data-act="seen" data-id="${esc(s.id)}">${icon("done")}Vu</button></div>`
@@ -464,7 +471,7 @@ function render() {
   $("barTitle").innerHTML = inDetail ? esc(s ? s.title : "") : esc({ lib: "Mes séries", next: "À suivre", stats: "Bilan" }[state.tab]) + (state.tab === "lib" ? `<span class="dot" aria-hidden="true"></span>` : "");
   $("fab").hidden = inDetail || state.tab === "stats";
   for (const b of document.querySelectorAll(".nav-item")) b.setAttribute("aria-current", !inDetail && b.dataset.tab === state.tab ? "page" : "false");
-  const nGoing = state.series.filter((x) => bucket(x) === "watching" && x.status !== "dropped" && stats(x).next).length;
+  const nGoing = state.series.filter((x) => x.follow && stats(x).next).length;
   $("nextBadge").hidden = !nGoing; $("nextBadge").textContent = nGoing;
   const html = inDetail ? detailView() : state.tab === "next" ? nextView() : state.tab === "stats" ? statsView() : libView();
   const key = inDetail ? "d:" + state.detailId : state.tab, main = $("main");
@@ -502,6 +509,13 @@ $("main").addEventListener("click", async (ev) => {
   if (act === "seen") { ev.stopPropagation(); markNext(s); }
   if (act === "status") { s.status = el.dataset.v; if (s.status === "done" && !s.finishedAt) s.finishedAt = todayISO(); touch(s); }
   if (act === "rate") { const v = +el.dataset.v; s.rating = s.rating === v ? 0 : v; touch(s); }
+  if (act === "follow") {
+    ev.stopPropagation();
+    const id = s.id, on = !s.follow;
+    const set = (v) => { const cur = find(id); if (!cur) return; if (v) cur.follow = true; else delete cur.follow; touch(cur, false); };
+    set(on);
+    snack(on ? `${s.title} ajoutée à « À suivre »` : `${s.title} retirée de « À suivre »`, () => set(!on));
+  }
   if (act === "ep") { const se = +el.dataset.s, e = +el.dataset.e, on = !((s.watched || {})["s" + se] || []).includes(e); const msg = setSeen(s, se, [e], on); if (msg) snack(msg); }
   if (act === "all") {
     const se = (s.seasons || []).find((x) => x.n === +el.dataset.s); if (!se) return;
@@ -702,7 +716,7 @@ $("addForm").addEventListener("submit", async (e) => {
   if (up && status === "todo") status = "watching";
   const posterUrl = base.posterUrl; delete base.posterUrl;
   const now = new Date().toISOString();
-  const s = { ...base, id: slug(title), title, year: +$("a-year").value || base.year || null, network: $("a-network").value.trim() || base.network || "", seasons, watched: {}, status, rating: 0, addedAt: now, updatedAt: now, upTo: up ? code(up.s, up.e) : undefined, ...(found ? { infoAt: now } : {}) };
+  const s = { ...base, id: slug(title), follow: $("a-status").value !== "done" || undefined, title, year: +$("a-year").value || base.year || null, network: $("a-network").value.trim() || base.network || "", seasons, watched: {}, status, rating: 0, addedAt: now, updatedAt: now, upTo: up ? code(up.s, up.e) : undefined, ...(found ? { infoAt: now } : {}) };
   if (status === "done") s.finishedAt = todayISO();
   applyProgress(s);
   $("saveBtn").disabled = true;
