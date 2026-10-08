@@ -3,7 +3,7 @@
 // à la compilation (scripts/build.mjs) ou lu dans l'environnement par les scripts de test.
 // Sans clé, les appels échouent et l'appli se rabat sur TVmaze.
 // `get(url)` est fourni par l'appelant et renvoie le JSON (null si 404).
-import { matchIn, key } from "./tvmaze.js";
+import { matchIn, key, closeTitle } from "./tvmaze.js";
 
 export const TMDB = "https://api.themoviedb.org/3";
 /* global __TMDB_KEY__ */
@@ -95,10 +95,14 @@ export async function searchMovies(get, q) {
 }
 
 // `strict` : titre identique exigé (titre Netflix « Série: épisode » qui n'est peut-être pas un film).
+// `maxYear` : année du visionnage. Entre homonymes (« The Killer » 1989 et 2023), on préfère un film sorti dans les
+// 3 ans qui précèdent : sur Netflix, on regarde surtout des films récents.
 export async function bestMovie(get, queries, wantedYear, maxYear, strict) {
-  if (!strict) return matchIn((q) => searchMovies(get, q), queries, wantedYear, maxYear);
+  if (!strict && wantedYear) return matchIn((q) => searchMovies(get, q), queries, wantedYear, maxYear);
   for (const q of [...new Set(queries.filter(Boolean))]) {
-    const hit = (await searchMovies(get, q)).find((m) => [m.title, m.originalTitle].some((t) => key(t) === key(q)) && (!maxYear || !m.year || m.year <= maxYear));
+    const same = (t) => (strict ? key(t) === key(q) : closeTitle(t, q));
+    const list = (await searchMovies(get, q)).filter((m) => [m.title, m.originalTitle].some(same) && (!maxYear || !m.year || m.year <= maxYear));
+    const hit = (maxYear && list.find((m) => m.year && m.year >= maxYear - 3)) || list[0];
     if (hit) return hit.id;
   }
   return null;
