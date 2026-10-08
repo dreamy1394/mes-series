@@ -58,8 +58,8 @@ jobs:
       - name: Publier l'APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: Mes séries v1.0.${{ github.run_number }}
+          tag_name: v2.0.${{ github.run_number }}
+          name: Mes séries v2.0.${{ github.run_number }}
           make_latest: true
           files: mes-series.apk
           body: |
