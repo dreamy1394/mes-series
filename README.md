@@ -1,6 +1,6 @@
 # Mes séries (Android)
 
-Application Android pour suivre les séries vues : saisons, épisodes cochés au fur et à mesure, prochaines diffusions et bilan du temps passé.
+Application Android pour suivre les séries et les films vus : saisons, épisodes cochés au fur et à mesure, prochaines diffusions, films vus ou à voir, et bilan du temps passé.
 
 ## Installer sur le téléphone
 
@@ -15,6 +15,13 @@ Application Android pour suivre les séries vues : saisons, épisodes cochés au
 - Les données restent sur le téléphone. Menu ⋮ de « Mes séries » : import CSV, sauvegarde (fichier JSON à envoyer où tu veux), restauration.
 - Au premier lancement, l'appli reprend les séries saisies dans le prototype web (`www/seed.json`).
 - Les fichiers de `www/imports/` (ex. historique Netflix) sont importés une seule fois : chaque saison vue coche ses N premiers épisodes, puis la fiche TVmaze est recherchée (titre original si fourni dans `searchTitle`). Une série introuvable ou mal reconnue se corrige depuis sa fiche.
+
+## Films (v2)
+
+- Onglet « Films » : même principe que les séries (fiche TMDB en français, statut À voir / Vu / Abandonné, date de visionnage, note, tri, recherche, import CSV). Les films « À voir » apparaissent dans « À suivre », le bilan a sa partie films.
+- Les films sont enregistrés à part (clé `films`) : les séries ne sont pas modifiées. La sauvegarde JSON contient les deux ; une ancienne sauvegarde (séries seules) ne remplace que les séries.
+- Fiches de films : TMDB uniquement (TVmaze ne connaît que les séries). Sans clé TMDB, les films se saisissent à la main.
+- Historique Netflix : `scripts/netflix-films.mjs` extrait les films du CSV Netflix (tout ce qui n'est pas un épisode d'une série de l'import séries) vers `www/imports/netflix-films-*.json`, listé dans `www/imports/films.json`. L'appli propose l'import dans l'onglet Films ; rien n'est ajouté sans accord. Un titre « Série: épisode » vu une seule fois (`strict`) n'est gardé que si TMDB connaît un film de ce titre exact. Vérifier les correspondances : workflow « Vérifier un import » avec ce fichier.
 
 ## Import CSV
 

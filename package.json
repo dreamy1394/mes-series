@@ -1,8 +1,8 @@
 {
   "name": "mes-series",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
-  "description": "Mes séries : suivi des séries vues, saison par saison et épisode par épisode (Android)",
+  "description": "Mes séries : suivi des séries (saison par saison, épisode par épisode) et des films vus (Android)",
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node scripts/test-tvmaze.mjs && node scripts/test-tmdb.mjs",

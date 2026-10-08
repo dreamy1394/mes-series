@@ -1,13 +1,13 @@
-// Mes séries : application Android (Capacitor). Données sur le téléphone, fiches et affiches depuis TMDB (en français), TVmaze en secours.
+// Mes séries : application Android (Capacitor). Séries et films vus ; données sur le téléphone, fiches et affiches depuis TMDB (en français), TVmaze en secours pour les séries.
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
 import { Preferences } from "@capacitor/preferences";
 import { Filesystem, Directory } from "@capacitor/filesystem";
 import { App } from "@capacitor/app";
 import { Share } from "@capacitor/share";
-import { search as searchShows, match as bestMatch, load as loadShow, toTmdb, refOf, tmdbReady } from "./sources.js";
+import { search as searchShows, match as bestMatch, load as loadShow, toTmdb, refOf, tmdbReady, searchFilms, matchFilm, loadFilm } from "./sources.js";
 
 const $ = (id) => document.getElementById(id);
-const state = { series: [], meta: {}, loaded: false, tab: "lib", detailId: null, filter: "all", sort: "recent", q: "", searchOpen: false, open: {}, listScroll: 0, enrich: null };
+const state = { series: [], films: [], meta: {}, loaded: false, tab: "lib", detailId: null, detailKind: "series", filter: "all", sort: "recent", fFilter: "all", fSort: "recent", q: "", searchOpen: false, open: {}, listScroll: 0, enrich: null, fEnrich: null, filmOffer: null, impKind: "series" };
 const native = Capacitor.isNativePlatform();
 
 // ---------- Outils ----------
@@ -18,6 +18,8 @@ const code = (s, e) => `S${p2(s)}E${p2(e)}`;
 const plural = (n, w) => `${n} ${n > 1 ? w.split(" ").map((x) => x + "s").join(" ") : w}`;
 const STATUS = { todo: "À voir", watching: "En cours", done: "Terminée", dropped: "Abandonnée" };
 const find = (id) => state.series.find((s) => s.id === id);
+const findFilm = (id) => state.films.find((f) => f.id === id);
+const FSTATUS = { todo: "À voir", done: "Vu", dropped: "Abandonné" };
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const todayISO = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
 const fmtDate = (iso, opts) => new Date(iso + "T00:00:00").toLocaleDateString("fr-FR", opts || { day: "numeric", month: "short" });
@@ -137,6 +139,7 @@ async function persist() {
   clearTimeout(persistTimer);
   try {
     await Preferences.set({ key: "series", value: JSON.stringify(state.series) });
+    await Preferences.set({ key: "films", value: JSON.stringify(state.films) });
     await Preferences.set({ key: "meta", value: JSON.stringify(state.meta) });
   } catch { snack("Enregistrement impossible : mémoire du téléphone pleine ?"); }
 }
@@ -149,9 +152,14 @@ async function load() {
     await persist();
   }
   try { const m = await Preferences.get({ key: "meta" }); if (m.value) state.meta = JSON.parse(m.value); } catch {}
+  // Films (v2) : clé séparée, les séries ne sont pas touchées.
+  try { const f = await Preferences.get({ key: "films" }); if (f.value) state.films = JSON.parse(f.value); } catch {}
+  try { state.fFilter = (await Preferences.get({ key: "fFilter" })).value || "all"; } catch {}
+  try { state.fSort = (await Preferences.get({ key: "fSort" })).value || "recent"; } catch {}
   try { state.filter = (await Preferences.get({ key: "filter" })).value || "all"; } catch {}
   try { state.sort = (await Preferences.get({ key: "sort" })).value || "recent"; } catch {}
   await bundledImports();
+  await filmOffer();
   // Passage à TMDB (fiches en français) : chaque fiche TVmaze est convertie une fois ; les introuvables sont recherchées à nouveau.
   if (!state.meta.tmdb && tmdbReady()) {
     for (const s of state.series) {
@@ -354,7 +362,8 @@ function libView() {
 function nextView() {
   if (!state.loaded) return loading();
   const rows = state.series.filter((s) => s.follow).map((s) => ({ s, st: stats(s) }));
-  if (!rows.length) return `<div class="empty">${icon("bookmark_add")}<strong>Aucune série à suivre</strong><span>Ouvre une série et touche « Suivre » : elle apparaîtra ici avec son prochain épisode et ses dates de diffusion.</span></div>`;
+  const films = state.films.filter((f) => f.status === "todo").sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+  if (!rows.length && !films.length) return `<div class="empty">${icon("bookmark_add")}<strong>Rien à suivre pour l'instant</strong><span>Ouvre une série et touche « Suivre » : elle apparaîtra ici avec son prochain épisode et ses dates de diffusion. Les films « À voir » s'y ajoutent aussi.</span></div>`;
   const recent = (a, b) => String(b.s.updatedAt || "").localeCompare(String(a.s.updatedAt || ""));
   const going = rows.filter((r) => r.st.next && r.st.seen > 0).sort(recent);
   const todo = rows.filter((r) => r.st.next && !r.st.seen).sort(recent);
@@ -370,17 +379,44 @@ function nextView() {
     <button class="btn soft small" type="button" data-act="seen" data-id="${esc(s.id)}">${icon("play_arrow")}${code(st.next.s, st.next.e)}</button></div>`).join("")}</div>`;
   if (waiting.length) html += `<div class="h2">À jour <small>${waiting.length}</small></div><div class="panel">${waiting.map(({ s }) => `<div class="row">${sm(s)}${body(s, s.airing ? "En attente de la suite" : "Tout est vu")}</div>
     <button class="icon-btn" type="button" data-act="follow" data-id="${esc(s.id)}" aria-label="Ne plus suivre ${esc(s.title)}">${icon("bookmark_remove")}</button></div>`).join("")}</div>`;
+  if (films.length) html += `<div class="h2">Films à voir <small>${films.length}</small></div><div class="panel">${films.map((f) => `<div class="row">${sm(f)}<div class="row-body" data-act="fopen" data-id="${esc(f.id)}" role="button" tabindex="0"><div class="s-t" style="font-size:15px">${esc(f.title)}</div><div class="s-sub">${esc(filmMeta(f))}</div></div>
+    <button class="btn soft small" type="button" data-act="fseen" data-id="${esc(f.id)}">${icon("done")}Vu</button></div>`).join("")}</div>`;
   return html;
 }
 
 function statsView() {
   if (!state.loaded) return loading();
   const all = state.series;
-  if (!all.length) return `<div class="empty">${icon("insights")}<strong>Pas encore de bilan</strong><span>Ajoute des séries et coche tes épisodes pour voir ton temps passé devant l'écran.</span></div>`;
+  if (!all.length && !state.films.length) return `<div class="empty">${icon("insights")}<strong>Pas encore de bilan</strong><span>Ajoute des séries ou des films pour voir ton temps passé devant l'écran.</span></div>`;
+  return (all.length ? seriesStats(all) : "") + filmStats();
+}
+function filmStats() {
+  const seen = state.films.filter((f) => f.status === "done");
+  if (!seen.length) return "";
+  const hours = Math.round(seen.reduce((n, f) => n + (f.runtime || 0), 0) / 60), rated = seen.filter((f) => f.rating);
+  const avg = rated.length ? (rated.reduce((n, f) => n + f.rating, 0) / rated.length).toFixed(1).replace(".", ",") : "–";
+  let html = `<div class="h2" style="margin-top:28px">Films</div><div class="tiles">
+    <div class="tile"><b class="num">${seen.length}</b><span>films vus</span></div>
+    <div class="tile"><b class="num">${hours} h</b><span>de films${hours >= 24 ? `, soit ${(hours / 24).toFixed(1).replace(".", ",")} jours` : ""}</span></div>
+    <div class="tile"><b class="num">${state.films.filter((f) => f.status === "todo").length}</b><span>à voir</span></div>
+    <div class="tile"><b class="num">${avg}</b><span>note moyenne${rated.length ? ` (${rated.length} notés)` : ""}</span></div></div>`;
+  const bars = (title, small, entries) => {
+    if (!entries.length) return "";
+    const max = entries[0][1];
+    return `<div class="h2">${title} <small>${small}</small></div><div class="hbars">${entries.map(([k, n]) => `<div class="hbar"><span class="lbl">${esc(k)}</span><span class="track"><span style="width:${(n / max) * 100}%"></span></span><span class="v">${n}</span></div>`).join("")}</div>`;
+  };
+  const count = (key) => { const g = {}; for (const f of seen) for (const x of key(f)) g[x] = (g[x] || 0) + 1; return Object.entries(g).sort((a, b) => b[1] - a[1]); };
+  html += bars("Genres", "nombre de films", count((f) => f.genres || []).slice(0, 8));
+  html += bars("Réalisateurs", "films vus", count((f) => f.directors || []).filter(([, n]) => n > 1).slice(0, 6));
+  const years = {}; for (const f of seen) if (f.seenAt) years[f.seenAt.slice(0, 4)] = (years[f.seenAt.slice(0, 4)] || 0) + 1;
+  html += bars("Par année", "films vus", Object.entries(years).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 8));
+  return html;
+}
+function seriesStats(all) {
   let eps = 0, mins = 0;
   for (const s of all) { const n = stats(s).seen; eps += n; mins += n * (s.runtime || 0); }
   const done = all.filter((s) => s.status === "done").length, hours = Math.round(mins / 60);
-  let html = `<div class="tiles">
+  let html = `${state.films.length ? `<div class="h2" style="margin-top:4px">Séries</div>` : ""}<div class="tiles">
     <div class="tile"><b class="num">${all.length}</b><span>séries suivies</span></div>
     <div class="tile"><b class="num">${done}</b><span>terminées</span></div>
     <div class="tile"><b class="num">${eps}</b><span>épisodes vus</span></div>
@@ -460,20 +496,25 @@ function detailView() {
 let renderQueued = false;
 function scheduleRender() { if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; render(); }); }
 function render() {
-  const inDetail = !!state.detailId, s = inDetail ? find(state.detailId) : null;
+  const inDetail = !!state.detailId, isFilm = state.detailKind === "film", s = inDetail ? (isFilm ? findFilm : find)(state.detailId) : null;
+  const listTab = state.tab === "lib" || state.tab === "films";
   $("backBtn").hidden = !inDetail;
   $("appbar").classList.toggle("with-back", inDetail);
-  $("searchBtn").hidden = inDetail || state.tab !== "lib";
-  $("menuBtn").hidden = inDetail || state.tab !== "lib";
+  $("searchBtn").hidden = inDetail || !listTab;
+  $("menuBtn").hidden = inDetail || !listTab;
   $("refreshBtn").hidden = !inDetail || !s;
   $("delBtn").hidden = !inDetail || !s;
-  $("searchbar").hidden = inDetail || state.tab !== "lib" || !state.searchOpen;
-  $("barTitle").innerHTML = inDetail ? esc(s ? s.title : "") : esc({ lib: "Mes séries", next: "À suivre", stats: "Bilan" }[state.tab]) + (state.tab === "lib" ? `<span class="dot" aria-hidden="true"></span>` : "");
+  $("refreshBtn").setAttribute("aria-label", isFilm ? "Mettre à jour les infos du film" : "Mettre à jour les infos de la série");
+  $("delBtn").setAttribute("aria-label", isFilm ? "Supprimer le film" : "Supprimer la série");
+  $("searchbar").hidden = inDetail || !listTab || !state.searchOpen;
+  $("search").placeholder = state.tab === "films" ? "Titre, réalisateur, acteur…" : "Titre, acteur, chaîne…";
+  $("barTitle").innerHTML = inDetail ? esc(s ? s.title : "") : esc({ lib: "Mes séries", films: "Mes films", next: "À suivre", stats: "Bilan" }[state.tab]) + (listTab ? `<span class="dot" aria-hidden="true"></span>` : "");
   $("fab").hidden = inDetail || state.tab === "stats";
+  $("fabTxt").textContent = state.tab === "films" ? "Film" : "Série";
   for (const b of document.querySelectorAll(".nav-item")) b.setAttribute("aria-current", !inDetail && b.dataset.tab === state.tab ? "page" : "false");
-  const nGoing = state.series.filter((x) => x.follow && stats(x).next).length;
+  const nGoing = state.series.filter((x) => x.follow && stats(x).next).length + state.films.filter((f) => f.status === "todo").length;
   $("nextBadge").hidden = !nGoing; $("nextBadge").textContent = nGoing;
-  const html = inDetail ? detailView() : state.tab === "next" ? nextView() : state.tab === "stats" ? statsView() : libView();
+  const html = inDetail ? (isFilm ? filmDetailView() : detailView()) : state.tab === "next" ? nextView() : state.tab === "stats" ? statsView() : state.tab === "films" ? filmsView() : libView();
   const key = inDetail ? "d:" + state.detailId : state.tab, main = $("main");
   const typing = document.activeElement && document.activeElement.id === "fixTitle" ? $("fixTitle").value : null;
   const cands = $("fixCands") ? $("fixCands").innerHTML : "";
@@ -483,7 +524,7 @@ function render() {
   if (typing !== null && $("fixTitle")) { $("fixTitle").value = typing; $("fixTitle").focus(); }
 }
 function go(tab) { state.tab = tab; state.detailId = null; render(); window.scrollTo(0, 0); }
-function openDetail(id) { state.fixOpen = false; if (!state.detailId) state.listScroll = window.scrollY; state.detailId = id; render(); window.scrollTo(0, 0); }
+function openDetail(id, kind = "series") { state.fixOpen = false; if (!state.detailId) state.listScroll = window.scrollY; state.detailId = id; state.detailKind = kind; render(); window.scrollTo(0, 0); }
 function back() { state.detailId = null; render(); window.scrollTo(0, state.listScroll); }
 window.addEventListener("scroll", () => $("appbar").classList.toggle("scrolled", window.scrollY > 4), { passive: true });
 
@@ -493,7 +534,7 @@ $("backBtn").addEventListener("click", back);
 $("searchBtn").addEventListener("click", () => { state.searchOpen = true; render(); $("search").focus(); });
 $("searchClose").addEventListener("click", () => { state.searchOpen = false; state.q = ""; $("search").value = ""; render(); });
 $("search").addEventListener("input", (e) => { state.q = e.target.value.trim().toLowerCase(); render(); });
-$("fab").addEventListener("click", openAdd);
+$("fab").addEventListener("click", () => (state.tab === "films" ? openAddFilm() : openAdd()));
 
 $("main").addEventListener("click", async (ev) => {
   const el = ev.target.closest("[data-act]"); if (!el || el.disabled) return;
@@ -502,6 +543,7 @@ $("main").addEventListener("click", async (ev) => {
   if (act === "toggle") { const k = el.dataset.k; state.open[k] = el.getAttribute("aria-expanded") !== "true"; render(); return; }
   if (act === "enrich") { enrichAll(); return; }
   if (act === "fixopen") { state.fixOpen = true; render(); return; }
+  if (act[0] === "f" && act !== "fix" && act !== "fixopen" && act !== "follow" && act !== "filter") return filmAction(act, el, ev);
   if (act === "pick") { const s = find(state.detailId); if (s) { state.fixOpen = false; s.picked = true; applyShow(s, el.dataset.tv).catch(() => snack("Pas de réponse des bases de séries. Vérifie ta connexion.")); } return; }
   const s = el.dataset.id ? find(el.dataset.id) : find(state.detailId);
   if (!s) return;
@@ -535,9 +577,39 @@ $("main").addEventListener("click", async (ev) => {
   }
 });
 $("main").addEventListener("change", (e) => {
-  if (e.target.dataset.act !== "sort") return;
-  state.sort = e.target.value; Preferences.set({ key: "sort", value: state.sort }).catch(() => {}); render();
+  const act = e.target.dataset.act;
+  if (act === "sort") { state.sort = e.target.value; Preferences.set({ key: "sort", value: state.sort }).catch(() => {}); render(); }
+  if (act === "fsort") { state.fSort = e.target.value; Preferences.set({ key: "fSort", value: state.fSort }).catch(() => {}); render(); }
+  if (act === "fdate") { const f = findFilm(state.detailId); if (f && e.target.value) { f.seenAt = e.target.value; touchFilm(f); } }
 });
+async function filmAction(act, el, ev) {
+  if (act === "ffilter") { state.fFilter = el.dataset.f; Preferences.set({ key: "fFilter", value: state.fFilter }).catch(() => {}); render(); return; }
+  if (act === "fenrich") { enrichFilms(); return; }
+  if (act === "fofferyes") { importFilmOffer(); return; }
+  if (act === "fofferno") {
+    const o = state.filmOffer; if (!o) return;
+    state.meta.filmDeclined = [...(state.meta.filmDeclined || []), o.file]; state.filmOffer = null; persistSoon(); render();
+    snack("D'accord. L'import reste possible depuis le menu ⋮ des films.", () => { state.meta.filmDeclined = state.meta.filmDeclined.filter((x) => x !== o.file); state.filmOffer = o; persistSoon(); render(); });
+    return;
+  }
+  const f = el.dataset.id ? findFilm(el.dataset.id) : findFilm(state.detailId);
+  if (!f) return;
+  if (act === "fopen") return openDetail(f.id, "film");
+  if (act === "fseen") { ev.stopPropagation(); markFilmSeen(f); }
+  if (act === "fstatus") setFilmStatus(f, el.dataset.v);
+  if (act === "frate") { const v = +el.dataset.v; f.rating = f.rating === v ? 0 : v; touchFilm(f); }
+  if (act === "fpick") { state.fixOpen = false; f.picked = true; applyFilm(f, el.dataset.ref).catch(() => snack("Pas de réponse de TMDB. Vérifie ta connexion.")); }
+  if (act === "ffix") {
+    const t = ($("fixTitle").value || "").replace(/\s+/g, " ").trim(); if (!t) return;
+    if (!tmdbReady()) { $("fixCands").innerHTML = `<p class="note err">Recherche de films indisponible dans cette version de l'appli.</p>`; return; }
+    el.disabled = true;
+    try {
+      const list = await searchFilms(getJson, t);
+      $("fixCands").innerHTML = list.length ? list.map(filmCandHtml).join("") : `<p class="note err">Toujours rien. Essaie le titre original.</p>`;
+    } catch { $("fixCands").innerHTML = `<p class="note err">Pas de réponse de TMDB. Vérifie ta connexion.</p>`; }
+    finally { el.disabled = false; }
+  }
+}
 $("main").addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[role=button][data-act]")) { e.preventDefault(); e.target.click(); } });
 const candHtml = (c) => `<button class="cand" type="button" data-act="pick" data-tv="${c.ref}">${poster({ title: c.title, year: c.year, posterUrl: c.poster }, "sm")}<span class="grow"><span class="s-t" style="font-size:15px">${esc(c.title)}</span><span class="s-sub">${esc([c.year ? (c.endYear && c.endYear !== c.year ? `${c.year}–${c.endYear}` : c.year) : "", c.network, c.country].filter(Boolean).join(" · "))}</span></span>${icon("chevron_right")}</button>`;
 
@@ -574,6 +646,13 @@ async function applyShow(s, ref, { silent, migrate } = {}) {
   return added;
 }
 $("refreshBtn").addEventListener("click", async () => {
+  if (state.detailKind === "film") {
+    const f = findFilm(state.detailId); if (!f) return;
+    $("refreshBtn").disabled = true;
+    try { await refreshFilm(f); } catch { snack("Pas de réponse de TMDB. Vérifie ta connexion."); }
+    finally { $("refreshBtn").disabled = false; }
+    return;
+  }
   const s = find(state.detailId); if (!s) return;
   const btn = $("refreshBtn"); btn.disabled = true;
   try {
@@ -631,16 +710,18 @@ async function enrichAll() {
 }
 
 $("delBtn").addEventListener("click", () => {
-  const s = find(state.detailId); if (!s) return;
-  $("confirmTxt").textContent = `${s.title} et les ${stats(s).seen} épisode(s) cochés seront retirés de ta liste.`;
+  const film = state.detailKind === "film", s = (film ? findFilm : find)(state.detailId); if (!s) return;
+  $("confirmH").textContent = film ? "Supprimer le film ?" : "Supprimer la série ?";
+  $("confirmTxt").textContent = film ? `${s.title} sera retiré de ta liste de films.` : `${s.title} et les ${stats(s).seen} épisode(s) cochés seront retirés de ta liste.`;
   $("confirmDlg").showModal();
 });
 $("confirmNo").addEventListener("click", () => $("confirmDlg").close());
 $("confirmYes").addEventListener("click", async () => {
-  const s = find(state.detailId); $("confirmDlg").close(); if (!s) return;
-  state.series = state.series.filter((x) => x.id !== s.id);
+  const film = state.detailKind === "film", s = (film ? findFilm : find)(state.detailId); $("confirmDlg").close(); if (!s) return;
+  if (film) state.films = state.films.filter((x) => x.id !== s.id);
+  else state.series = state.series.filter((x) => x.id !== s.id);
   if (s.poster) Filesystem.deleteFile({ path: s.poster, directory: Directory.Data }).catch(() => {});
-  await persist(); back(); snack(`${s.title} supprimée`);
+  await persist(); back(); snack(`${s.title} supprimé${film ? "" : "e"}`);
 });
 
 // ---------- Ajout ----------
@@ -727,6 +808,242 @@ $("addForm").addEventListener("submit", async (e) => {
   $("addDlg").close(); snack(`${title} ajoutée`); openDetail(s.id);
 });
 
+// ---------- Films ----------
+// Même principe que les séries : fiche TMDB (en français), statut, note, tri, recherche, import. Un film est « vu » ou non (pas d'épisodes).
+const fslug = (t) => "film-" + slug(t);
+const filmMeta = (f) => [f.year, f.runtime ? fmtRuntime(f.runtime) : "", (f.directors || [])[0]].filter(Boolean).join(" · ");
+const fmtRuntime = (m) => (m >= 60 ? `${Math.floor(m / 60)} h ${p2(m % 60)}` : `${m} min`);
+function filmTag(f) {
+  if (f.needsInfo === true) return `<span class="tag">${icon("hourglass_top")}Fiche à compléter</span>`;
+  if (f.needsInfo === "notfound") return `<span class="tag waiting">${icon("help")}Fiche introuvable</span>`;
+  if (f.status === "done") return `<span class="tag done">${icon("check")}Vu${f.seenAt ? ` le ${fmtDate(f.seenAt, { day: "numeric", month: "short", year: "numeric" })}` : ""}</span>`;
+  if (f.status === "dropped") return `<span class="tag">Abandonné</span>`;
+  return `<span class="tag watching">À voir</span>`;
+}
+function filmCard(f) {
+  const meta = filmMeta(f);
+  return `<div class="s-card" role="button" tabindex="0" data-act="fopen" data-id="${esc(f.id)}">
+    ${poster(f)}
+    <div class="s-body">
+      <div class="s-t">${esc(f.title)}</div>
+      <div class="s-sub">${f.rating ? `<span class="s-rate" aria-label="Note ${f.rating} sur 5">★ ${f.rating}</span>${meta ? " · " : ""}` : ""}${esc(meta)}</div>
+      <div class="s-foot">${filmTag(f)}${(f.genres || []).length ? `<span class="s-sub">${esc(f.genres.slice(0, 2).join(", "))}</span>` : ""}</div>
+    </div>
+    ${f.status === "todo" ? `<button class="seen-btn" type="button" data-act="fseen" data-id="${esc(f.id)}" aria-label="Marquer ${esc(f.title)} comme vu">${icon("done")}</button>` : ""}
+  </div>`;
+}
+const FSORTS = [["recent", "Récents"], ["title", "Titre A → Z"], ["rating", "Note"], ["year", "Année de sortie"]];
+const FSTATUS_ORDER = { todo: 0, done: 1, dropped: 2 };
+const FSORT_FN = {
+  recent: (a, b) => FSTATUS_ORDER[a.status] - FSTATUS_ORDER[b.status] || String(b.seenAt || b.updatedAt || "").localeCompare(String(a.seenAt || a.updatedAt || "")) || byTitle(a, b),
+  title: byTitle,
+  rating: (a, b) => (b.rating || 0) - (a.rating || 0) || byTitle(a, b),
+  year: (a, b) => (b.year || 0) - (a.year || 0) || byTitle(a, b),
+};
+function filmMatches(f) {
+  if (state.q) {
+    const hay = [f.title, f.originalTitle, ...(f.directors || []), ...(f.cast || []).map((c) => c.name)].join(" ").toLowerCase();
+    if (!hay.includes(state.q)) return false;
+  }
+  return state.fFilter === "all" || f.status === state.fFilter;
+}
+function filmsView() {
+  if (!state.loaded) return loading();
+  const all = state.films, seen = all.filter((f) => f.status === "done");
+  const hours = Math.round(seen.reduce((n, f) => n + (f.runtime || 0), 0) / 60);
+  const count = (k) => all.filter((f) => k === "all" || f.status === k).length;
+  const chips = [["all", "Tous"], ["todo", "À voir"], ["done", "Vus"], ["dropped", "Abandonnés"]]
+    .map(([k, l]) => `<button class="chip" type="button" data-act="ffilter" data-f="${k}" aria-pressed="${state.fFilter === k}">${l}<span class="n num">${count(k)}</span></button>`).join("");
+  let html = `<p class="summary"><span><b class="num">${all.length}</b> film${all.length > 1 ? "s" : ""}</span><span><b class="num">${hours} h</b> de films vus</span><label class="sort">${icon("sort")}<select data-act="fsort" aria-label="Trier par">${FSORTS.map(([k, l]) => `<option value="${k}"${state.fSort === k ? " selected" : ""}>${l}</option>`).join("")}</select></label></p><div class="chips" role="group" aria-label="Filtrer par statut">${chips}</div>`;
+  if (state.filmOffer) html += `<div class="info">${icon("movie")}<span style="flex:1">Ton historique Netflix contient environ <b class="num">${state.filmOffer.films.length}</b> films. Les ajouter comme vus ?</span><button class="btn ghost small" type="button" data-act="fofferno" aria-label="Ne pas importer">Non</button><button class="btn primary small" type="button" data-act="fofferyes">Importer</button></div>`;
+  const pend = all.filter((f) => f.needsInfo === true).length;
+  if (state.fEnrich) html += `<div class="info"><span class="spinner"></span><span>Fiches en cours de remplissage : <b class="num">${state.fEnrich.done}</b> / ${state.fEnrich.total}.</span></div>`;
+  else if (pend && tmdbReady()) html += `<div class="info">${icon("cloud_download")}<span style="flex:1">${plural(pend, "film")} sans fiche (affiche, résumé, casting).</span><button class="btn primary small" type="button" data-act="fenrich">Compléter</button></div>`;
+  if (!all.length) return html + `<div class="empty">${icon("movie")}<strong>Aucun film pour l'instant</strong><span>Ajoute le premier avec le bouton « Film » : affiche, résumé, réalisateur et casting arrivent tout seuls.</span></div>`;
+  const shown = all.filter(filmMatches).sort(FSORT_FN[state.fSort] || FSORT_FN.recent);
+  if (!shown.length) return html + `<div class="empty">${icon("filter_alt_off")}<span>Aucun film ne correspond.</span></div>`;
+  return html + `<div class="list">${shown.map(filmCard).join("")}</div>`;
+}
+function filmDetailView() {
+  const f = findFilm(state.detailId);
+  if (!f) return `<div class="empty">${icon("search_off")}<span>Ce film n'existe plus.</span></div>`;
+  const meta = [f.year, f.runtime ? fmtRuntime(f.runtime) : "", f.country].filter(Boolean).join(" · ");
+  let html = `<div class="hero">${poster(f, "big")}<div class="hero-txt">
+    <h2>${esc(f.title)}</h2>
+    ${f.originalTitle && f.originalTitle !== f.title ? `<div class="orig">${esc(f.originalTitle)}</div>` : ""}
+    <div class="meta">${esc(meta)}</div>
+    <div class="s-foot" style="margin-top:4px">${filmTag(f)}</div></div></div>`;
+  if (f.imported && f.ref && !state.fixOpen) html += `<button class="btn ghost small" type="button" data-act="fixopen" style="margin:-8px 0 8px -10px">${icon("swap_horiz")}Pas le bon film ? Changer</button>`;
+  if (f.needsInfo === "notfound" || f.needsInfo === true || state.fixOpen) html += `<div class="info warn" style="margin:0 0 12px">${icon("help")}<span>${!tmdbReady() ? "Recherche de films indisponible dans cette version de l'appli." : f.needsInfo === "notfound" ? "TMDB n'a pas reconnu ce titre." : state.fixOpen ? "Cherche le bon film et choisis-le : ton statut et ta note sont conservés." : "Fiche pas encore remplie."} Corrige le titre si besoin (le titre original marche mieux) puis lance la recherche.</span></div>
+    <div class="searchrow" style="margin-bottom:14px"><div class="field"><label for="fixTitle">Titre</label><input id="fixTitle" maxlength="120" value="${esc(f.title)}" autocomplete="off"></div><button class="btn primary" type="button" data-act="ffix">${icon("travel_explore")}Rechercher</button></div><div class="cands" id="fixCands"></div>`;
+  html += `<div class="seg seg3" role="group" aria-label="Mon statut">${Object.entries(FSTATUS).map(([k, l]) => `<button type="button" data-act="fstatus" data-v="${k}" aria-pressed="${f.status === k}">${l}</button>`).join("")}</div>
+    <div class="stars" role="group" aria-label="Ma note">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="${(f.rating || 0) >= n ? "on" : ""}" data-act="frate" data-v="${n}" aria-label="${n} sur 5" aria-pressed="${f.rating === n}">${icon("star", (f.rating || 0) >= n)}</button>`).join("")}<span class="lbl">${f.rating ? `${f.rating}/5` : "Pas encore noté"}</span></div>`;
+  if (f.status === "done") html += `<div class="field" style="margin-bottom:16px"><label for="fSeenAt">Vu le</label><input id="fSeenAt" type="date" data-act="fdate" value="${esc(f.seenAt || "")}" max="${todayISO()}"></div>`;
+  if (f.tagline) html += `<p class="prose" style="font-style:italic;margin-bottom:0">${esc(f.tagline)}</p>`;
+  if (f.summary) html += `<div class="h2">Résumé</div><p class="prose">${esc(f.summary)}</p>`;
+  const facts = [["Réalisation", (f.directors || []).join(", ")], ["Genres", (f.genres || []).join(", ")], ["Pays", f.country], ["Durée", f.runtime ? fmtRuntime(f.runtime) : ""]].filter(([, v]) => v);
+  if (facts.length) html += `<div class="h2">Fiche</div><dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`;
+  if ((f.cast || []).length) html += `<div class="h2">Acteurs principaux</div><div class="cast">${f.cast.map((c) => `<div class="person"><b>${esc(c.name)}</b>${c.role ? `<span>${esc(c.role)}</span>` : ""}</div>`).join("")}</div>`;
+  if (f.imported && f.firstSeen) html += `<p class="source">Historique Netflix : vu ${f.views > 1 ? `${f.views} fois, ` : ""}${f.firstSeen !== f.lastSeen ? `du ${fmtLong(f.firstSeen)} au ${fmtLong(f.lastSeen)}` : `le ${fmtLong(f.firstSeen)}`}.</p>`;
+  if (f.infoAt) html += `<p class="source">Fiche ${f.ref ? `TMDB mise à jour le ${fmtLong(f.infoAt)}` : `du ${fmtLong(f.infoAt)}`}.</p>`;
+  return html;
+}
+const filmCandHtml = (c) => `<button class="cand" type="button" data-act="fpick" data-ref="${c.ref}">${poster({ title: c.title, year: c.year, posterUrl: c.poster }, "sm")}<span class="grow"><span class="s-t" style="font-size:15px">${esc(c.title)}</span><span class="s-sub">${esc([c.year, c.originalTitle !== c.title ? c.originalTitle : ""].filter(Boolean).join(" · "))}</span></span>${icon("chevron_right")}</button>`;
+
+function touchFilm(f, user = true) {
+  if (user) f.updatedAt = new Date().toISOString();
+  persistSoon(); render();
+}
+function setFilmStatus(f, v) {
+  f.status = v;
+  if (v === "done" && !f.seenAt) f.seenAt = todayISO();
+  touchFilm(f);
+}
+function markFilmSeen(f) {
+  const before = [f.status, f.seenAt];
+  setFilmStatus(f, "done");
+  snack(`${f.title} vu`, () => { const cur = findFilm(f.id); if (!cur) return; [cur.status, cur.seenAt] = before; if (!cur.seenAt) delete cur.seenAt; touchFilm(cur); });
+}
+// Remplace les infos du film par celles de la fiche TMDB, en gardant le statut, la note et la date de visionnage.
+async function applyFilm(f, ref, { silent } = {}) {
+  const info = await loadFilm(getJson, ref);
+  const cur = findFilm(f.id); if (!cur) return;
+  const keepTitle = cur.imported || cur.renamed ? cur.title : info.title;
+  const { posterUrl, ...rest } = info;
+  Object.assign(cur, rest, { title: keepTitle, posterUrl, infoAt: new Date().toISOString() });
+  delete cur.needsInfo; delete cur.strict;
+  if (posterUrl && (!cur.poster || cur.posterFrom !== posterUrl)) { try { await savePoster(cur, posterUrl); cur.posterFrom = posterUrl; } catch {} }
+  touchFilm(cur, false);
+  if (!silent) snack(`Fiche de ${cur.title} à jour`);
+}
+async function refreshFilm(f) {
+  const ref = f.ref || await matchFilm(getJson, [f.searchTitle, f.title, f.originalTitle], f.year, f.firstSeen ? +f.firstSeen.slice(0, 4) : null);
+  if (!ref) { snack(tmdbReady() ? "Film introuvable sur TMDB. Corrige le titre puis réessaie." : "Recherche de films indisponible dans cette version de l'appli."); f.needsInfo = "notfound"; touchFilm(f, false); return; }
+  await applyFilm(f, ref);
+}
+// Fiches à remplir (ajout par import) : correspondance TMDB d'après le titre et l'année de visionnage.
+// Un titre Netflix « Série: épisode » (`strict`) que TMDB ne connaît pas comme film est retiré : c'était un épisode.
+async function enrichFilms() {
+  if (state.fEnrich || !tmdbReady()) return;
+  const queue = state.films.filter((f) => f.needsInfo === true).map((f) => f.id);
+  if (!queue.length) return;
+  state.fEnrich = { done: 0, total: queue.length };
+  let ok = 0, nf = 0, net = 0;
+  render();
+  for (const id of queue) {
+    const f = findFilm(id);
+    if (f && f.needsInfo === true) {
+      try {
+        const ref = await matchFilm(getJson, [f.searchTitle, f.title, f.originalTitle], f.year, f.firstSeen ? +f.firstSeen.slice(0, 4) : null, f.strict);
+        if (ref && !state.films.some((x) => x.id !== f.id && x.ref === ref)) { await applyFilm(f, ref, { silent: true }); ok++; }
+        else if (ref || f.strict) state.films = state.films.filter((x) => x.id !== f.id); // doublon ou épisode de série
+        else { f.needsInfo = "notfound"; nf++; }
+      } catch { net++; if (net >= 3) break; }
+      await sleep(50);
+    }
+    state.fEnrich.done++; render();
+    if (state.fEnrich.done % 20 === 0) await persist();
+  }
+  state.fEnrich = null; await persist(); render();
+  if (net >= 3) snack("Pas de réponse de TMDB. Vérifie ta connexion puis touche « Compléter ».", null, 6000);
+  else snack(`${plural(ok, "fiche complétée")}${nf ? `, ${nf} introuvable${nf > 1 ? "s" : ""} : ouvre leur fiche pour corriger le titre` : ""}`, null, 6000);
+}
+
+// Films de l'historique Netflix : proposés dans l'onglet Films, importés seulement si Tanguy accepte.
+async function filmOffer() {
+  state.filmOffer = null;
+  let files = [];
+  try { const r = await fetch("imports/films.json"); if (r.ok) files = await r.json(); } catch {}
+  const done = new Set([...(state.meta.filmImports || []), ...(state.meta.filmDeclined || [])]);
+  for (const f of files) {
+    if (done.has(f)) continue;
+    try { const r = await fetch("imports/" + f); if (!r.ok) continue; const data = await r.json(); state.filmOffer = { file: f, source: data.source || f, films: data.films || [] }; return; } catch {}
+  }
+}
+async function importFilmOffer() {
+  const o = state.filmOffer; if (!o) return;
+  const have = new Set(state.films.flatMap((f) => [norm(f.title), norm(f.originalTitle)]).filter(Boolean));
+  let n = 0;
+  for (const x of o.films) {
+    if (!x.title || have.has(norm(x.title))) continue;
+    state.films.push({ id: fslug(x.title), title: x.title, searchTitle: x.searchTitle || undefined, year: x.year || null, status: "done", rating: 0, seenAt: x.last, firstSeen: x.first, lastSeen: x.last, views: x.count || 1, genres: [], cast: [], directors: [], needsInfo: true, imported: true, source: o.source, ...(x.strict ? { strict: true } : {}), addedAt: new Date().toISOString(), updatedAt: x.last + "T12:00:00.000Z" });
+    have.add(norm(x.title)); n++;
+  }
+  state.meta.filmImports = [...(state.meta.filmImports || []), o.file];
+  state.filmOffer = null;
+  await persist(); render();
+  snack(`${plural(n, "film ajouté")} depuis ${o.source}. Récupération des fiches…`, null, 6000);
+  enrichFilms();
+}
+
+// Ajout d'un film
+let fFound = null;
+function openAddFilm() {
+  fFound = null;
+  $("filmForm").reset();
+  for (const id of ["fNote", "fCands", "fFoundBox", "fErr", "fDetails", "fManual"]) $(id).hidden = true;
+  $("filmDlg").showModal();
+  $("f-q").focus();
+}
+async function lookupFilm() {
+  const q = $("f-q").value.trim(), note = $("fNote");
+  note.hidden = false; note.className = "note";
+  if (!q) { note.textContent = "Tape d'abord le titre du film."; return; }
+  $("fFoundBox").hidden = true; $("fDetails").hidden = true; fFound = null;
+  if (!tmdbReady()) { note.textContent = "Recherche de films indisponible dans cette version : saisis le film à la main."; $("fManual").hidden = false; return; }
+  $("fLookup").disabled = true; $("fLookup").innerHTML = `<span class="spinner"></span>Recherche`;
+  note.textContent = "Recherche…";
+  try {
+    const list = await searchFilms(getJson, q);
+    $("fCands").innerHTML = list.map(filmCandHtml).join("");
+    $("fCands").hidden = !list.length;
+    note.textContent = list.length ? "Choisis le bon film :" : "Aucun film trouvé. Essaie le titre original, ou saisis-le à la main.";
+  } catch { note.className = "note err"; note.textContent = "Pas de réponse de TMDB. Vérifie ta connexion, ou saisis le film à la main."; }
+  finally { $("fManual").hidden = false; $("fLookup").disabled = false; $("fLookup").innerHTML = `${icon("travel_explore")}Rechercher`; }
+}
+function filmDetails(d) {
+  $("f-year").value = d.year || "";
+  $("fDetails").hidden = false;
+  $("f-status").dispatchEvent(new Event("change"));
+}
+$("filmClose").addEventListener("click", () => $("filmDlg").close());
+$("f-q").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); lookupFilm(); } });
+$("fLookup").addEventListener("click", lookupFilm);
+$("fManual").addEventListener("click", () => { fFound = null; $("fCands").hidden = true; $("fFoundBox").hidden = true; filmDetails({}); $("fNote").textContent = "Saisie manuelle : la fiche pourra être complétée plus tard depuis le film."; $("fNote").hidden = false; });
+$("f-status").addEventListener("change", () => { $("fSeenBox").hidden = $("f-status").value !== "done"; if (!$("f-seen").value) $("f-seen").value = todayISO(); });
+$("fCands").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-ref]"); if (!b) return;
+  const note = $("fNote");
+  note.className = "note"; note.textContent = "Chargement de la fiche…"; note.hidden = false;
+  try {
+    fFound = await loadFilm(getJson, b.dataset.ref);
+    $("fFoundBox").innerHTML = `<div class="found">${poster(fFound)}<div class="grow"><div class="t">${esc(fFound.title)}</div>
+      <div class="s-sub">${esc(filmMeta(fFound))}</div>
+      <div class="s-sub">${esc(fFound.cast.slice(0, 3).map((c) => c.name).join(", "))}</div>${fFound.summary ? `<p>${esc(fFound.summary)}</p>` : ""}</div></div>`;
+    $("fFoundBox").hidden = false; $("fCands").hidden = true;
+    note.textContent = "Fiche TMDB trouvée. Indique si tu l'as vu, puis ajoute-le.";
+    filmDetails(fFound);
+  } catch { note.className = "note err"; note.textContent = "Pas de réponse de TMDB. Vérifie ta connexion."; }
+});
+$("filmForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if ($("fDetails").hidden) return lookupFilm();
+  const err = (m) => { $("fErr").textContent = m; $("fErr").hidden = false; };
+  const title = (fFound && fFound.title) || $("f-q").value.trim();
+  if (!title) return err("Donne un titre au film.");
+  if (fFound && state.films.some((x) => x.ref === fFound.ref)) return err("Ce film est déjà dans ta liste.");
+  const status = $("f-status").value, now = new Date().toISOString();
+  const base = fFound ? clone(fFound) : { title, genres: [], cast: [], directors: [] };
+  const posterUrl = base.posterUrl; delete base.posterUrl;
+  const f = { ...base, id: fslug(title), title, year: +$("f-year").value || base.year || null, status, rating: 0, addedAt: now, updatedAt: now, ...(status === "done" ? { seenAt: $("f-seen").value || todayISO() } : {}), ...(fFound ? { infoAt: now } : {}) };
+  $("fSave").disabled = true;
+  if (posterUrl) { try { await savePoster(f, posterUrl); f.posterFrom = posterUrl; f.posterUrl = posterUrl; } catch {} }
+  state.films.push(f);
+  await persist();
+  $("fSave").disabled = false;
+  $("filmDlg").close(); snack(`${title} ajouté`); openDetail(f.id, "film");
+});
+
 // ---------- Import CSV ou liste collée ----------
 const COLS = {
   title: ["titre", "title", "serie", "series", "nom", "name", "titredelaserie"],
@@ -801,27 +1118,38 @@ function parseList(text) {
 
 let impItems = [];
 function impPreview() {
-  const items = parseList($("impText").value), def = $("impDefault").value;
-  const have = new Set(state.series.map((s) => norm(s.title))), seen = new Set();
+  const items = parseList($("impText").value), def = $("impDefault").value, film = state.impKind === "film";
+  const have = new Set((film ? state.films : state.series).map((s) => norm(s.title))), seen = new Set();
   impItems = items.map((x) => {
     const k = norm(x.title), dup = have.has(k) || seen.has(k);
     seen.add(k);
-    return { ...x, status: x.status || (x.upTo ? "watching" : def), dup };
+    // Films : pas d'« en cours », un film commencé reste à voir.
+    const status = x.status || (x.upTo && !film ? "watching" : def);
+    return { ...x, status: film && status === "watching" ? "todo" : status, dup };
   });
   const n = impItems.filter((x) => !x.dup).length, dups = impItems.length - n;
   const btn = $("impGo");
   btn.disabled = !n;
-  btn.innerHTML = `${icon("playlist_add")}${n ? `Importer ${plural(n, "série")}` : "Importer"}`;
+  btn.innerHTML = `${icon("playlist_add")}${n ? `Importer ${plural(n, film ? "film" : "série")}` : "Importer"}`;
   if (!impItems.length) { $("impPreview").innerHTML = $("impText").value.trim() ? `<p class="note err">Aucun titre reconnu. Mets un titre par ligne, ou une colonne « titre » dans ton CSV.</p>` : ""; return; }
   $("impPreview").innerHTML = `<p class="note"><b class="num">${n}</b> à importer${dups ? `, ${dups} déjà dans ta liste (ignorée${dups > 1 ? "s" : ""})` : ""}. Les fiches et affiches seront ensuite récupérées automatiquement.</p>
-    <div class="prev">${impItems.slice(0, 200).map((x) => `<div class="prev-row ${x.dup ? "skip" : ""}"><span class="t">${esc(x.title)}${x.year ? ` <span class="s-sub">(${x.year})</span>` : ""}</span>${x.upTo ? `<span class="code">${x.upTo}</span>` : ""}${x.rating ? `<span class="num s-sub">${x.rating}/5</span>` : ""}<span class="tag ${x.status === "done" ? "done" : x.status === "watching" ? "watching" : ""}">${STATUS[x.status]}</span></div>`).join("")}${impItems.length > 200 ? `<p class="note">… et ${impItems.length - 200} autres.</p>` : ""}</div>`;
+    <div class="prev">${impItems.slice(0, 200).map((x) => `<div class="prev-row ${x.dup ? "skip" : ""}"><span class="t">${esc(x.title)}${x.year ? ` <span class="s-sub">(${x.year})</span>` : ""}</span>${x.upTo ? `<span class="code">${x.upTo}</span>` : ""}${x.rating ? `<span class="num s-sub">${x.rating}/5</span>` : ""}<span class="tag ${x.status === "done" ? "done" : x.status === "watching" ? "watching" : ""}">${(film ? FSTATUS : STATUS)[x.status]}</span></div>`).join("")}${impItems.length > 200 ? `<p class="note">… et ${impItems.length - 200} autres.</p>` : ""}</div>`;
 }
 function openImport() {
-  for (const d of ["addDlg", "menuDlg"]) if ($(d).open) $(d).close();
+  const film = state.impKind === "film";
+  for (const d of ["addDlg", "filmDlg", "menuDlg"]) if ($(d).open) $(d).close();
+  $("impTitle").textContent = film ? "Importer des films" : "Importer des séries";
+  $("impHelp").innerHTML = film
+    ? `Un fichier CSV (export Excel, Letterboxd, Notion…) ou une simple liste collée, un film par ligne. Seul le titre est obligatoire ; les colonnes reconnues sont <span class="code">titre</span>, <span class="code">statut</span> (vu, à voir), <span class="code">note</span> (sur 5) et <span class="code">annee</span>.`
+    : `Un fichier CSV (export Excel, Google Sheets, Notion…) ou une simple liste collée, une série par ligne. Seul le titre est obligatoire ; les colonnes reconnues sont <span class="code">titre</span>, <span class="code">statut</span>, <span class="code">vu_jusqu_a</span> (ex. S02E05), <span class="code">note</span> (sur 5), <span class="code">annee</span> et <span class="code">saisons</span> (épisodes par saison, ex. 8|10|10).`;
+  $("impDefault").innerHTML = film
+    ? `<option value="done">Vu</option><option value="todo">À voir</option>`
+    : `<option value="done">Terminée (déjà vue)</option><option value="watching">En cours</option><option value="todo">À voir</option>`;
   $("impText").value = ""; $("impFile").value = ""; impItems = []; impPreview();
   $("impDlg").showModal();
 }
-$("toImport").addEventListener("click", openImport);
+$("toImport").addEventListener("click", () => { state.impKind = "series"; openImport(); });
+$("fToImport").addEventListener("click", () => { state.impKind = "film"; openImport(); });
 $("impClose").addEventListener("click", () => $("impDlg").close());
 let impTimer;
 $("impText").addEventListener("input", () => { clearTimeout(impTimer); impTimer = setTimeout(impPreview, 250); });
@@ -835,6 +1163,7 @@ $("impFile").addEventListener("change", async (e) => {
   $("impText").value = text; impPreview();
 });
 $("impTpl").addEventListener("click", async () => {
+  if (state.impKind === "film") return shareText("modele-mes-films.csv", "﻿titre;statut;note;annee\r\nLe Voyage de Chihiro;vu;5;2001\r\nDune;à voir;;2021\r\nTenet;vu;3;2020\r\n", "Modèle d'import de films");
   const csv = "﻿titre;statut;vu_jusqu_a;note;annee\r\nBreaking Bad;terminée;;5;2008\r\nThe Office;en cours;S03E12;4;2005\r\nFleabag;à voir;;;\r\nLupin;abandonnée;S01E03;2;2021\r\n";
   await shareText("modele-mes-series.csv", csv, "Modèle d'import Mes séries");
 });
@@ -842,6 +1171,15 @@ $("impGo").addEventListener("click", async () => {
   const items = impItems.filter((x) => !x.dup);
   if (!items.length) return;
   const now = new Date().toISOString();
+  if (state.impKind === "film") {
+    for (const x of items) state.films.push({ id: fslug(x.title), title: x.title, year: x.year, status: x.status, rating: x.rating || 0, genres: [], cast: [], directors: [], needsInfo: true, imported: true, addedAt: now, updatedAt: now, ...(x.status === "done" ? { seenAt: todayISO() } : {}) });
+    await persist();
+    $("impDlg").close();
+    state.fFilter = "all"; go("films");
+    snack(`${plural(items.length, "film importé")}`);
+    setTimeout(enrichFilms, 400);
+    return;
+  }
   for (const x of items) {
     const s = { id: slug(x.title), title: x.title, year: x.year, status: x.status, rating: x.rating || 0, seasons: (x.seasons || []).map((count, i) => ({ n: i + 1, count })), watched: {}, genres: [], cast: [], creators: [], directors: [], needsInfo: true, addedAt: now, updatedAt: now, imported: true };
     if (x.upTo) s.upTo = x.upTo;
@@ -867,17 +1205,27 @@ async function shareText(name, text, title) {
   }
 }
 $("menuBtn").addEventListener("click", () => {
+  const film = state.tab === "films";
+  $("mImportT").textContent = film ? "Importer une liste de films" : "Importer une liste de séries";
+  $("mRefresh").hidden = film;
+  const nf = state.meta.filmDeclined && state.meta.filmDeclined.length && !state.filmOffer;
+  $("mFilmsNetflix").hidden = !(film && nf);
   $("lastExport").textContent = state.meta.lastExport ? `Dernier envoi le ${fmtLong(state.meta.lastExport)}` : "Aucun envoi pour l'instant";
   $("lastCheck").textContent = state.meta.checkedAt ? `Dernière vérification le ${fmtLong(state.meta.checkedAt)}` : "Nouveaux épisodes, dates de diffusion";
   $("menuDlg").showModal();
 });
 $("menuClose").addEventListener("click", () => $("menuDlg").close());
-$("mImport").addEventListener("click", openImport);
+$("mImport").addEventListener("click", () => { state.impKind = state.tab === "films" ? "film" : "series"; openImport(); });
+$("mFilmsNetflix").addEventListener("click", async () => {
+  $("menuDlg").close();
+  state.meta.filmDeclined = []; await filmOffer();
+  if (state.filmOffer) importFilmOffer(); else snack("Plus de films à importer depuis Netflix.");
+});
 $("mExport").addEventListener("click", async () => {
   try {
     // Les affiches ne sont pas incluses : elles se re-téléchargent à la restauration.
-    const series = state.series.map((s) => { const c = clone(s); delete c.poster; return c; });
-    await shareText(`mes-series-${todayISO()}.json`, JSON.stringify({ app: "mes-series", version: 1, exportedAt: new Date().toISOString(), series }), "Sauvegarde Mes séries");
+    const strip = (s) => { const c = clone(s); delete c.poster; return c; };
+    await shareText(`mes-series-${todayISO()}.json`, JSON.stringify({ app: "mes-series", version: 2, exportedAt: new Date().toISOString(), series: state.series.map(strip), films: state.films.map(strip) }), "Sauvegarde Mes séries");
     state.meta.lastExport = new Date().toISOString(); await persist();
     $("lastExport").textContent = `Dernier envoi le ${fmtLong(state.meta.lastExport)}`;
   } catch (e) { if (!/cancel/i.test(String(e && e.message))) snack("La sauvegarde n'a pas pu être envoyée."); }
@@ -889,11 +1237,15 @@ $("restoreFile").addEventListener("change", async (e) => {
   try {
     const d = JSON.parse(await f.text());
     if (!d || d.app !== "mes-series" || !Array.isArray(d.series) || d.series.some((s) => !s.id || !s.title)) throw new Error();
-    if (!confirm(`Remplacer tes séries actuelles (${state.series.length}) par celles du fichier (${d.series.length}) ?`)) return;
-    state.series = d.series.map((s) => { delete s.poster; delete s.posterFrom; return s; });
+    // Sauvegarde v1 (avant les films) : seules les séries sont remplacées, les films restent.
+    const films = Array.isArray(d.films) ? d.films.filter((f) => f.id && f.title) : null;
+    if (!confirm(`Remplacer tes séries actuelles (${state.series.length}) par celles du fichier (${d.series.length})${films ? ` et tes films (${state.films.length}) par ceux du fichier (${films.length})` : ""} ?`)) return;
+    const reset = (s) => { delete s.poster; delete s.posterFrom; return s; };
+    state.series = d.series.map(reset);
+    if (films) state.films = films.map(reset);
     await persist(); $("menuDlg").close(); go("lib");
-    snack(`${plural(d.series.length, "série restaurée")}. Récupération des affiches…`);
-    for (const s of state.series) { if (s.posterUrl) { try { await savePoster(s, s.posterUrl); s.posterFrom = s.posterUrl; } catch {} } }
+    snack(`${plural(d.series.length, "série restaurée")}${films ? `, ${plural(films.length, "film restauré")}` : ""}. Récupération des affiches…`);
+    for (const s of [...state.series, ...state.films]) { if (s.posterUrl) { try { await savePoster(s, s.posterUrl); s.posterFrom = s.posterUrl; } catch {} } }
     await persist(); render();
   } catch { snack("Ce fichier n'est pas une sauvegarde Mes séries."); }
 });
@@ -904,6 +1256,7 @@ App.addListener("backButton", () => {
   const open = [...document.querySelectorAll("dialog[open]")].pop();
   if (open) { open.close(); return; }
   if (state.searchOpen) { $("searchClose").click(); return; }
+  if (state.detailId && state.fixOpen) { state.fixOpen = false; render(); return; }
   if (state.detailId) { back(); return; }
   if (state.tab !== "lib") { go("lib"); return; }
   App.exitApp();
@@ -914,6 +1267,7 @@ App.addListener("pause", () => { persist(); }).catch(() => {});
 render();
 load().then(() => {
   render();
+  if (state.films.some((f) => f.needsInfo === true)) enrichFilms();
   if (state.series.some((s) => s.needsInfo === true || (s.tmdbPending && tmdbReady()))) enrichAll().then(() => refreshAiring({ silent: true }));
   else {
     const last = state.meta.checkedAt ? new Date(state.meta.checkedAt) : null;

@@ -1,6 +1,6 @@
 // Rapport : quelles séries d'un fichier d'import TMDB (puis TVmaze) reconnaît-il ? (node scripts/check-import.mjs www/imports/xxx.json)
 import { readFileSync, writeFileSync } from "node:fs";
-import { match } from "../src/sources.js";
+import { match, matchFilm } from "../src/sources.js";
 import * as tmdb from "../src/tmdb.js";
 import * as tvmaze from "../src/tvmaze.js";
 
@@ -16,10 +16,28 @@ const get = async (url) => {
   throw new Error("rate");
 };
 const file = process.argv[2];
-const { series } = JSON.parse(readFileSync(file, "utf8"));
+const data = JSON.parse(readFileSync(file, "utf8"));
 const found = [], missing = [];
 const cache = new Map();
 const getCached = async (url) => { if (!cache.has(url)) { cache.set(url, await get(url)); await sleep(url.includes("tvmaze") ? 550 : 40); } return cache.get(url); };
+
+// Fichier de films (TMDB seulement) : `strict` = titre « Série: épisode » gardé seulement si un film porte ce titre exact.
+if (data.films) {
+  let skipped = 0;
+  for (const f of data.films) {
+    const ref = await matchFilm(getCached, [f.searchTitle, f.title], f.year, f.first ? +f.first.slice(0, 4) : null, f.strict);
+    if (!ref) { if (f.strict) skipped++; else missing.push(f.title); continue; }
+    const id = +ref.split(":")[1];
+    let hit = { title: "?" };
+    for (const q of [f.searchTitle, f.title].filter(Boolean)) { const h = (await tmdb.searchMovies(getCached, q)).find((x) => x.id === id); if (h) { hit = h; break; } }
+    found.push(`${f.title}${f.strict ? " (?)" : ""} → ${hit.title}${hit.originalTitle && hit.originalTitle !== hit.title ? ` / ${hit.originalTitle}` : ""} (${hit.year ?? "?"}, ${ref})`);
+  }
+  const md = `# ${file}\n\n${found.length} films trouvés, ${missing.length} introuvables, ${skipped} titres « série: épisode » écartés sur ${data.films.length}.\n\n## Introuvables\n\n${missing.map((x) => `- ${x}`).join("\n")}\n\n## Trouvés\n\n${found.map((x) => `- ${x}`).join("\n")}\n`;
+  writeFileSync("rapport-import.md", md);
+  console.log(md);
+  process.exit(0);
+}
+const { series } = data;
 const bySrc = { tmdb: 0, tvmaze: 0 };
 for (const s of series) {
   const ref = await match(getCached, [s.searchTitle, s.title], s.year, s.first ? +s.first.slice(0, 4) : null);

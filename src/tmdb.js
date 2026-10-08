@@ -3,7 +3,7 @@
 // à la compilation (scripts/build.mjs) ou lu dans l'environnement par les scripts de test.
 // Sans clé, les appels échouent et l'appli se rabat sur TVmaze.
 // `get(url)` est fourni par l'appelant et renvoie le JSON (null si 404).
-import { matchIn } from "./tvmaze.js";
+import { matchIn, key, closeTitle } from "./tvmaze.js";
 
 export const TMDB = "https://api.themoviedb.org/3";
 /* global __TMDB_KEY__ */
@@ -82,5 +82,57 @@ export function toSeries(s, eps) {
     seasons,
     posterUrl: s.poster_path ? IMG + "w342" + s.poster_path : null,
     imdb: (s.external_ids || {}).imdb_id || null,
+  };
+}
+
+// ---------- Films ----------
+export async function searchMovies(get, q) {
+  const r = await get(url("/search/movie", { query: q, include_adult: "false" }));
+  return ((r && r.results) || []).slice(0, 8).map((m) => ({
+    id: m.id, ref: "tmdb:" + m.id, title: m.title, originalTitle: m.original_title,
+    year: year(m.release_date), votes: m.vote_count || 0, poster: m.poster_path ? IMG + "w154" + m.poster_path : null,
+  }));
+}
+
+// `strict` : titre identique exigé (titre Netflix « Série: épisode » qui n'est peut-être pas un film).
+// `maxYear` : année du visionnage. Entre homonymes exacts (« The Killer » 1989 et 2023), on préfère un film sorti dans
+// les 3 ans qui précèdent (sur Netflix, on regarde surtout des nouveautés), s'il n'est pas confidentiel.
+export async function bestMovie(get, queries, wantedYear, maxYear, strict) {
+  if (!strict && wantedYear) return matchIn((q) => searchMovies(get, q), queries, wantedYear, maxYear);
+  for (const q of [...new Set(queries.filter(Boolean))]) {
+    const found = await searchMovies(get, q);
+    const exact = found.filter((m) => [m.title, m.originalTitle].some((t) => key(t) === key(q)));
+    const base = exact.length || strict ? exact : found.filter((m) => [m.title, m.originalTitle].some((t) => closeTitle(t, q)));
+    const before = base.filter((m) => !maxYear || !m.year || m.year <= maxYear);
+    const pool = before.length ? before : base;
+    const top = Math.max(0, ...pool.map((m) => m.votes));
+    const recent = maxYear && pool.find((m) => m.year && m.year >= maxYear - 3 && m.votes >= Math.max(20, top * 0.2));
+    const hit = recent || pool[0];
+    if (hit) return hit.id;
+  }
+  return strict ? null : matchIn((q) => searchMovies(get, q), queries, null, maxYear);
+}
+
+export async function loadMovie(get, id) {
+  const m = await get(url(`/movie/${id}`, { append_to_response: "credits" }));
+  if (!m) throw new Error("tmdb 404");
+  if (!m.overview) { try { const en = await get(url(`/movie/${id}`, { language: "en-US" })); m.overview = (en && en.overview) || ""; } catch {} }
+  return toFilm(m);
+}
+
+export function toFilm(m) {
+  const cr = m.credits || {};
+  return {
+    tmdbId: m.id, ref: "tmdb:" + m.id, source: "TMDB",
+    title: m.title || m.original_title || "", originalTitle: m.original_title || m.title || "",
+    year: year(m.release_date), runtime: m.runtime || null,
+    country: country(((m.production_countries || [])[0] || {}).iso_3166_1 || (m.origin_country || [])[0]),
+    genres: (m.genres || []).map((g) => g.name).slice(0, 4),
+    directors: [...new Set((cr.crew || []).filter((c) => c.job === "Director").map((c) => c.name))].slice(0, 3),
+    cast: (cr.cast || []).slice(0, 6).map((c) => ({ name: c.name || "", role: c.character || "" })).filter((c) => c.name),
+    summary: String(m.overview || "").trim().slice(0, 1500),
+    tagline: m.tagline || "",
+    posterUrl: m.poster_path ? IMG + "w342" + m.poster_path : null,
+    imdb: m.imdb_id || null,
   };
 }

@@ -90,7 +90,7 @@ button { cursor: pointer; }
 .searchbar input { flex: 1; border: 0; background: transparent; font-size: 16px; min-width: 0; outline: none; }
 
 .navbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--surface); border-top: 1px solid var(--line); padding: 8px 0 calc(10px + env(safe-area-inset-bottom, 0px)); }
-.navbar .in { max-width: 720px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); }
+.navbar .in { max-width: 720px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); }
 .nav-item { border: 0; background: none; display: grid; justify-items: center; gap: 2px; padding: 4px 0; color: var(--ink-2); font-size: 12px; font-weight: 600; }
 .nav-item .pill { width: 60px; height: 30px; border-radius: 15px; display: grid; place-items: center; position: relative; }
 .nav-item[aria-current="page"] { color: var(--ink); }
@@ -168,6 +168,7 @@ button { cursor: pointer; }
 .meta { color: var(--ink-2); font-size: 14px; }
 .seg { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--surface-2); border-radius: 12px; padding: 3px; gap: 3px; }
 .seg button { border: 0; background: transparent; border-radius: 9px; height: 36px; font-size: 13px; font-weight: 600; color: var(--ink-2); padding: 0 4px; }
+.seg.seg3 { grid-template-columns: repeat(3, 1fr); }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
 .btn.follow { width: 100%; justify-content: center; margin-top: 10px; background: var(--surface-2); color: var(--ink); }
 .btn.follow[aria-pressed="true"] { background: var(--accent-soft); color: var(--on-accent-soft); }
@@ -299,11 +300,12 @@ dialog .snack { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
   <main id="main"></main>
 </div>
 
-<button class="fab" type="button" id="fab"><span class="ms">add</span><span>Série</span></button>
+<button class="fab" type="button" id="fab"><span class="ms">add</span><span id="fabTxt">Série</span></button>
 
 <nav class="navbar" aria-label="Navigation principale">
   <div class="in">
-    <button class="nav-item" type="button" data-tab="lib" aria-current="page"><span class="pill"><span class="ms">video_library</span></span>Mes séries</button>
+    <button class="nav-item" type="button" data-tab="lib" aria-current="page"><span class="pill"><span class="ms">live_tv</span></span>Séries</button>
+    <button class="nav-item" type="button" data-tab="films"><span class="pill"><span class="ms">movie</span></span>Films</button>
     <button class="nav-item" type="button" data-tab="next"><span class="pill"><span class="ms">play_circle</span><span class="badge" id="nextBadge" hidden></span></span>À suivre</button>
     <button class="nav-item" type="button" data-tab="stats"><span class="pill"><span class="ms">insights</span></span>Bilan</button>
   </div>
@@ -342,13 +344,42 @@ dialog .snack { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
   </form>
 </dialog>
 
+<dialog class="full" id="filmDlg" aria-labelledby="filmTitle">
+  <div class="full-bar">
+    <button class="icon-btn" type="button" id="filmClose" aria-label="Fermer"><span class="ms">close</span></button>
+    <h2 id="filmTitle">Ajouter un film</h2>
+  </div>
+  <form class="fbody" id="filmForm" novalidate>
+    <div class="searchrow">
+      <div class="field"><label for="f-q">Titre du film</label><input id="f-q" maxlength="120" placeholder="Le Voyage de Chihiro" autocomplete="off"></div>
+      <button class="btn primary" type="button" id="fLookup"><span class="ms">travel_explore</span>Rechercher</button>
+    </div>
+    <p class="note" id="fNote" hidden></p>
+    <button class="btn ghost small" type="button" id="fToImport" style="justify-self:start"><span class="ms">upload_file</span>Plusieurs films ? Importer une liste ou un CSV</button>
+    <div class="cands" id="fCands" hidden></div>
+    <button class="btn ghost small" type="button" id="fManual" style="justify-self:start" hidden><span class="ms">edit</span>Pas dans la liste ? Saisir à la main</button>
+    <div id="fFoundBox" hidden></div>
+    <div id="fDetails" hidden style="display:grid;gap:16px">
+      <div class="grid2">
+        <div class="field"><label for="f-status">Pour moi, c'est</label>
+          <select id="f-status"><option value="done">Vu</option><option value="todo">À voir</option></select>
+        </div>
+        <div class="field"><label for="f-year">Année de sortie</label><input id="f-year" type="number" min="1890" max="2100" inputmode="numeric" placeholder="2001"></div>
+      </div>
+      <div class="field" id="fSeenBox"><label for="f-seen">Vu le</label><input id="f-seen" type="date"><span class="help">Approximatif, ça suffit.</span></div>
+      <p class="note err" id="fErr" hidden></p>
+      <button class="btn primary" type="submit" id="fSave"><span class="ms">add</span>Ajouter à mes films</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog class="full" id="impDlg" aria-labelledby="impTitle">
   <div class="full-bar">
     <button class="icon-btn" type="button" id="impClose" aria-label="Fermer"><span class="ms">close</span></button>
     <h2 id="impTitle">Importer des séries</h2>
   </div>
   <div class="fbody">
-    <p class="note">Un fichier CSV (export Excel, Google Sheets, Notion…) ou une simple liste collée, une série par ligne. Seul le titre est obligatoire ; les colonnes reconnues sont <span class="code">titre</span>, <span class="code">statut</span>, <span class="code">vu_jusqu_a</span> (ex. S02E05), <span class="code">note</span> (sur 5), <span class="code">annee</span> et <span class="code">saisons</span> (épisodes par saison, ex. 8|10|10).</p>
+    <p class="note" id="impHelp">Un fichier CSV (export Excel, Google Sheets, Notion…) ou une simple liste collée, une série par ligne. Seul le titre est obligatoire ; les colonnes reconnues sont <span class="code">titre</span>, <span class="code">statut</span>, <span class="code">vu_jusqu_a</span> (ex. S02E05), <span class="code">note</span> (sur 5), <span class="code">annee</span> et <span class="code">saisons</span> (épisodes par saison, ex. 8|10|10).</p>
     <div class="season-tools">
       <label class="btn soft" for="impFile"><span class="ms">upload_file</span>Choisir un fichier CSV</label>
       <input type="file" id="impFile" accept=".csv,.tsv,.txt,text/csv,text/plain" hidden>
@@ -369,17 +400,18 @@ dialog .snack { bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
     <h2 id="menuTitle">Import et sauvegarde</h2>
   </div>
   <div class="fbody" style="gap:4px">
-    <button class="menu-item" type="button" id="mImport"><span class="ms">upload_file</span><span>Importer une liste de séries<small>Fichier CSV ou liste collée</small></span></button>
+    <button class="menu-item" type="button" id="mImport"><span class="ms">upload_file</span><span><span id="mImportT">Importer une liste de séries</span><small>Fichier CSV ou liste collée</small></span></button>
+    <button class="menu-item" type="button" id="mFilmsNetflix" hidden><span class="ms">movie</span><span>Importer les films de mon historique Netflix<small>Ajoutés comme vus, fiches TMDB récupérées ensuite</small></span></button>
     <button class="menu-item" type="button" id="mExport"><span class="ms">ios_share</span><span>Envoyer une sauvegarde<small id="lastExport">Aucun envoi pour l'instant.</small></span></button>
     <button class="menu-item" type="button" id="mRestore"><span class="ms">settings_backup_restore</span><span>Restaurer une sauvegarde<small>Remplace toutes tes séries par celles du fichier</small></span></button>
     <button class="menu-item" type="button" id="mRefresh"><span class="ms">sync</span><span>Mettre à jour toutes les séries en cours<small id="lastCheck">Nouveaux épisodes, dates de diffusion</small></span></button>
     <input type="file" id="restoreFile" accept="application/json,.json" hidden>
-    <p class="note" style="margin-top:16px">Données : <a href="https://www.tvmaze.com" style="color:var(--accent)">TVmaze</a> (licence CC BY-SA). Tes séries sont enregistrées uniquement sur ce téléphone.</p>
+    <p class="note" style="margin-top:16px">Données : <a href="https://www.themoviedb.org" style="color:var(--accent)">TMDB</a> et <a href="https://www.tvmaze.com" style="color:var(--accent)">TVmaze</a> (licence CC BY-SA). Ce produit utilise l'API TMDB mais n'est ni approuvé ni certifié par TMDB. Tes séries et tes films sont enregistrés uniquement sur ce téléphone, et la sauvegarde contient les deux.</p>
   </div>
 </dialog>
 
 <dialog class="alert" id="confirmDlg">
-  <h3>Supprimer la série ?</h3>
+  <h3 id="confirmH">Supprimer la série ?</h3>
   <p id="confirmTxt"></p>
   <div class="end"><button class="btn ghost" type="button" id="confirmNo" style="color:var(--ink)">Annuler</button><button class="btn primary" type="button" id="confirmYes">Supprimer</button></div>
 </dialog>
