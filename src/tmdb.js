@@ -3,7 +3,7 @@
 // à la compilation (scripts/build.mjs) ou lu dans l'environnement par les scripts de test.
 // Sans clé, les appels échouent et l'appli se rabat sur TVmaze.
 // `get(url)` est fourni par l'appelant et renvoie le JSON (null si 404).
-import { matchIn } from "./tvmaze.js";
+import { matchIn, key } from "./tvmaze.js";
 
 export const TMDB = "https://api.themoviedb.org/3";
 /* global __TMDB_KEY__ */
@@ -82,5 +82,48 @@ export function toSeries(s, eps) {
     seasons,
     posterUrl: s.poster_path ? IMG + "w342" + s.poster_path : null,
     imdb: (s.external_ids || {}).imdb_id || null,
+  };
+}
+
+// ---------- Films ----------
+export async function searchMovies(get, q) {
+  const r = await get(url("/search/movie", { query: q, include_adult: "false" }));
+  return ((r && r.results) || []).slice(0, 8).map((m) => ({
+    id: m.id, ref: "tmdb:" + m.id, title: m.title, originalTitle: m.original_title,
+    year: year(m.release_date), poster: m.poster_path ? IMG + "w154" + m.poster_path : null,
+  }));
+}
+
+// `strict` : titre identique exigé (titre Netflix « Série: épisode » qui n'est peut-être pas un film).
+export async function bestMovie(get, queries, wantedYear, maxYear, strict) {
+  if (!strict) return matchIn((q) => searchMovies(get, q), queries, wantedYear, maxYear);
+  for (const q of [...new Set(queries.filter(Boolean))]) {
+    const hit = (await searchMovies(get, q)).find((m) => [m.title, m.originalTitle].some((t) => key(t) === key(q)) && (!maxYear || !m.year || m.year <= maxYear));
+    if (hit) return hit.id;
+  }
+  return null;
+}
+
+export async function loadMovie(get, id) {
+  const m = await get(url(`/movie/${id}`, { append_to_response: "credits" }));
+  if (!m) throw new Error("tmdb 404");
+  if (!m.overview) { try { const en = await get(url(`/movie/${id}`, { language: "en-US" })); m.overview = (en && en.overview) || ""; } catch {} }
+  return toFilm(m);
+}
+
+export function toFilm(m) {
+  const cr = m.credits || {};
+  return {
+    tmdbId: m.id, ref: "tmdb:" + m.id, source: "TMDB",
+    title: m.title || m.original_title || "", originalTitle: m.original_title || m.title || "",
+    year: year(m.release_date), runtime: m.runtime || null,
+    country: country(((m.production_countries || [])[0] || {}).iso_3166_1 || (m.origin_country || [])[0]),
+    genres: (m.genres || []).map((g) => g.name).slice(0, 4),
+    directors: [...new Set((cr.crew || []).filter((c) => c.job === "Director").map((c) => c.name))].slice(0, 3),
+    cast: (cr.cast || []).slice(0, 6).map((c) => ({ name: c.name || "", role: c.character || "" })).filter((c) => c.name),
+    summary: String(m.overview || "").trim().slice(0, 1500),
+    tagline: m.tagline || "",
+    posterUrl: m.poster_path ? IMG + "w342" + m.poster_path : null,
+    imdb: m.imdb_id || null,
   };
 }

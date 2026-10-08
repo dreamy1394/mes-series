@@ -42,3 +42,12 @@ export function load(get, ref) {
   const [src, id] = String(ref).split(":");
   return src === "tmdb" ? tmdb.loadShow(get, +id) : tvmaze.loadShow(get, +id);
 }
+
+// Films : TMDB seulement (TVmaze ne connaît que les séries).
+export async function searchFilms(get, q) { return tmdb.hasKey() ? tmdb.searchMovies(get, q) : []; }
+export async function matchFilm(get, queries, wantedYear, maxYear, strict) {
+  if (!tmdb.hasKey()) return null;
+  const id = await tmdb.bestMovie(get, queries, wantedYear, maxYear, strict);
+  return id ? "tmdb:" + id : null;
+}
+export const loadFilm = (get, ref) => tmdb.loadMovie(get, +String(ref).split(":")[1]);
