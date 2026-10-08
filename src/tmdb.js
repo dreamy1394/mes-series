@@ -90,22 +90,27 @@ export async function searchMovies(get, q) {
   const r = await get(url("/search/movie", { query: q, include_adult: "false" }));
   return ((r && r.results) || []).slice(0, 8).map((m) => ({
     id: m.id, ref: "tmdb:" + m.id, title: m.title, originalTitle: m.original_title,
-    year: year(m.release_date), poster: m.poster_path ? IMG + "w154" + m.poster_path : null,
+    year: year(m.release_date), votes: m.vote_count || 0, poster: m.poster_path ? IMG + "w154" + m.poster_path : null,
   }));
 }
 
 // `strict` : titre identique exigé (titre Netflix « Série: épisode » qui n'est peut-être pas un film).
-// `maxYear` : année du visionnage. Entre homonymes (« The Killer » 1989 et 2023), on préfère un film sorti dans les
-// 3 ans qui précèdent : sur Netflix, on regarde surtout des films récents.
+// `maxYear` : année du visionnage. Entre homonymes exacts (« The Killer » 1989 et 2023), on préfère un film sorti dans
+// les 3 ans qui précèdent (sur Netflix, on regarde surtout des nouveautés), s'il n'est pas confidentiel.
 export async function bestMovie(get, queries, wantedYear, maxYear, strict) {
   if (!strict && wantedYear) return matchIn((q) => searchMovies(get, q), queries, wantedYear, maxYear);
   for (const q of [...new Set(queries.filter(Boolean))]) {
-    const same = (t) => (strict ? key(t) === key(q) : closeTitle(t, q));
-    const list = (await searchMovies(get, q)).filter((m) => [m.title, m.originalTitle].some(same) && (!maxYear || !m.year || m.year <= maxYear));
-    const hit = (maxYear && list.find((m) => m.year && m.year >= maxYear - 3)) || list[0];
+    const found = await searchMovies(get, q);
+    const exact = found.filter((m) => [m.title, m.originalTitle].some((t) => key(t) === key(q)));
+    const base = exact.length || strict ? exact : found.filter((m) => [m.title, m.originalTitle].some((t) => closeTitle(t, q)));
+    const before = base.filter((m) => !maxYear || !m.year || m.year <= maxYear);
+    const pool = before.length ? before : base;
+    const top = Math.max(0, ...pool.map((m) => m.votes));
+    const recent = maxYear && pool.find((m) => m.year && m.year >= maxYear - 3 && m.votes >= Math.max(20, top * 0.2));
+    const hit = recent || pool[0];
     if (hit) return hit.id;
   }
-  return null;
+  return strict ? null : matchIn((q) => searchMovies(get, q), queries, null, maxYear);
 }
 
 export async function loadMovie(get, id) {
