@@ -29,13 +29,14 @@ const films = new Map();
 for (const r of rows) {
   const p = parts(r.title);
   if (!norm(p[0]) || /^[:\s]/.test(r.title) || EPISODE.test(r.title)) continue; // épisode sans titre de série
-  if (p.length === 1 && seriesKeys.has(norm(r.title))) continue;
   if (p.length > 1 && (isSeries(p) || prefixCount[norm(p[0])] > 1)) continue;
   const k = norm(r.title), f = films.get(k);
   if (f) { f.count++; if (r.date < f.first) f.first = r.date; if (r.date > f.last) f.last = r.date; continue; }
   // « Titre: sous-titre » vu une seule fois : film (« Venom: Let There Be Carnage ») ou épisode isolé d'une série.
   // L'appli ne le garde que si TMDB reconnaît un film de ce titre exact.
-  films.set(k, { title: r.title, first: r.date, last: r.date, count: 1, ...(p.length > 1 ? { strict: true } : {}) });
+  // Titre seul identique à une série importée (« Death Note » 2017, « La défense Lincoln » 2011) : le film du même nom,
+  // gardé lui aussi seulement si TMDB en connaît un sous ce titre exact.
+  films.set(k, { title: r.title, first: r.date, last: r.date, count: 1, ...(p.length > 1 || seriesKeys.has(k) ? { strict: true } : {}) });
 }
 
 const list = [...films.values()].sort((a, b) => b.last.localeCompare(a.last));

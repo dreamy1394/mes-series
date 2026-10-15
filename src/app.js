@@ -956,20 +956,39 @@ async function filmOffer() {
   try { const r = await fetch("imports/films.json"); if (r.ok) files = await r.json(); } catch {}
   const done = new Set([...(state.meta.filmImports || []), ...(state.meta.filmDeclined || [])]);
   for (const f of files) {
+    if ((state.meta.filmImports || []).includes(f)) { await filmImportFixes(f); continue; }
     if (done.has(f)) continue;
-    try { const r = await fetch("imports/" + f); if (!r.ok) continue; const data = await r.json(); state.filmOffer = { file: f, source: data.source || f, films: data.films || [] }; return; } catch {}
+    try { const r = await fetch("imports/" + f); if (!r.ok) continue; const data = await r.json(); state.filmOffer = { file: f, source: data.source || f, revision: data.revision || 1, films: data.films || [] }; return; } catch {}
   }
+}
+// Nouvelle révision d'un import de films déjà fait : les titres de `added` (films oubliés à l'extraction) sont ajoutés.
+async function filmImportFixes(f) {
+  try {
+    const r = await fetch("imports/" + f); if (!r.ok) return;
+    const data = await r.json(), rev = data.revision || 1, from = (state.meta.filmImportRev || {})[f] || 1;
+    if (rev <= from) return;
+    const want = new Set(Object.entries(data.added || {}).filter(([v]) => +v > from).flatMap(([, l]) => l).map(norm));
+    const n = addNetflixFilms(data.films.filter((x) => want.has(norm(x.title))), data.source || f);
+    state.meta.filmImportRev = { ...state.meta.filmImportRev, [f]: rev };
+    await persist();
+    if (n) setTimeout(() => snack(`${plural(n, "film ajouté")} depuis ${data.source || "l'import"} (oubliés au premier import).`, null, 6000), 800);
+  } catch {}
+}
+function addNetflixFilms(list, source) {
+  const have = new Set(state.films.flatMap((f) => [norm(f.title), norm(f.originalTitle)]).filter(Boolean));
+  let n = 0;
+  for (const x of list) {
+    if (!x.title || have.has(norm(x.title))) continue;
+    state.films.push({ id: fslug(x.title), title: x.title, searchTitle: x.searchTitle || undefined, year: x.year || null, status: "done", rating: 0, seenAt: x.last, firstSeen: x.first, lastSeen: x.last, views: x.count || 1, genres: [], cast: [], directors: [], needsInfo: true, imported: true, source, ...(x.strict ? { strict: true } : {}), addedAt: new Date().toISOString(), updatedAt: x.last + "T12:00:00.000Z" });
+    have.add(norm(x.title)); n++;
+  }
+  return n;
 }
 async function importFilmOffer() {
   const o = state.filmOffer; if (!o) return;
-  const have = new Set(state.films.flatMap((f) => [norm(f.title), norm(f.originalTitle)]).filter(Boolean));
-  let n = 0;
-  for (const x of o.films) {
-    if (!x.title || have.has(norm(x.title))) continue;
-    state.films.push({ id: fslug(x.title), title: x.title, searchTitle: x.searchTitle || undefined, year: x.year || null, status: "done", rating: 0, seenAt: x.last, firstSeen: x.first, lastSeen: x.last, views: x.count || 1, genres: [], cast: [], directors: [], needsInfo: true, imported: true, source: o.source, ...(x.strict ? { strict: true } : {}), addedAt: new Date().toISOString(), updatedAt: x.last + "T12:00:00.000Z" });
-    have.add(norm(x.title)); n++;
-  }
+  const n = addNetflixFilms(o.films, o.source);
   state.meta.filmImports = [...(state.meta.filmImports || []), o.file];
+  state.meta.filmImportRev = { ...state.meta.filmImportRev, [o.file]: o.revision };
   state.filmOffer = null;
   await persist(); render();
   snack(`${plural(n, "film ajouté")} depuis ${o.source}. Récupération des fiches…`, null, 6000);
