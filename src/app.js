@@ -160,6 +160,7 @@ async function load() {
   try { state.sort = (await Preferences.get({ key: "sort" })).value || "recent"; } catch {}
   await bundledImports();
   await filmOffer();
+  if (state.filmOffer) await importFilmOffer();
   // Passage à TMDB (fiches en français) : chaque fiche TVmaze est convertie une fois ; les introuvables sont recherchées à nouveau.
   if (!state.meta.tmdb && tmdbReady()) {
     for (const s of state.series) {
@@ -949,15 +950,14 @@ async function enrichFilms() {
   else snack(`${plural(ok, "fiche complétée")}${nf ? `, ${nf} introuvable${nf > 1 ? "s" : ""} : ouvre leur fiche pour corriger le titre` : ""}`, null, 6000);
 }
 
-// Films de l'historique Netflix : proposés dans l'onglet Films, importés seulement si Tanguy accepte.
+// Films de l'historique Netflix : importés automatiquement au démarrage (Tanguy veut retrouver tous ses films vus).
+// Un import déjà fait mais dont il ne reste aucun film (enregistrement perdu) est refait.
 async function filmOffer() {
   state.filmOffer = null;
   let files = [];
   try { const r = await fetch("imports/films.json"); if (r.ok) files = await r.json(); } catch {}
-  const done = new Set([...(state.meta.filmImports || []), ...(state.meta.filmDeclined || [])]);
   for (const f of files) {
-    if ((state.meta.filmImports || []).includes(f)) { await filmImportFixes(f); continue; }
-    if (done.has(f)) continue;
+    if ((state.meta.filmImports || []).includes(f) && state.films.length) { await filmImportFixes(f); continue; }
     try { const r = await fetch("imports/" + f); if (!r.ok) continue; const data = await r.json(); state.filmOffer = { file: f, source: data.source || f, revision: data.revision || 1, films: data.films || [] }; return; } catch {}
   }
 }
@@ -987,7 +987,8 @@ function addNetflixFilms(list, source) {
 async function importFilmOffer() {
   const o = state.filmOffer; if (!o) return;
   const n = addNetflixFilms(o.films, o.source);
-  state.meta.filmImports = [...(state.meta.filmImports || []), o.file];
+  state.meta.filmImports = [...new Set([...(state.meta.filmImports || []), o.file])];
+  state.meta.filmDeclined = (state.meta.filmDeclined || []).filter((x) => x !== o.file);
   state.meta.filmImportRev = { ...state.meta.filmImportRev, [o.file]: o.revision };
   state.filmOffer = null;
   await persist(); render();
